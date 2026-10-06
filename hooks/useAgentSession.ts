@@ -21,6 +21,8 @@ import {
   setSessionViewSnapshot,
 } from "@/lib/session-view-cache";
 import { clearDraft, getDraft, rekeyDraft, restoreDraftSubmission } from "@/lib/draft-store";
+import { getWorkItemDraftIntent } from "@/lib/work-item-draft";
+import { reportWorkItemAssociationPending } from "@/lib/agent-client";
 import { getPreferredToolPreset, setPreferredToolPreset } from "@/lib/tool-preset-preference";
 import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type ToolPreset } from "@/lib/tool-presets";
 import type { SessionStatsInfo } from "@/lib/pi-types";
@@ -825,6 +827,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         body: JSON.stringify({
           cwd: newSessionCwd,
           type: "ensure_session",
+          workItemId: getWorkItemDraftIntent(newSessionDraftKey),
           ...(toolNames !== undefined ? { toolNames } : {}),
           ...(selectedModel ? { provider: selectedModel.provider, modelId: selectedModel.modelId } : {}),
           ...(selectedThinkingLevel
@@ -832,12 +835,21 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
             : {}),
         }),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const result = await res.json() as {
         sessionId: string;
+        code?: string;
+        workItemId?: string;
         model?: SelectedModel | null;
         thinkingLevel?: ThinkingLevelOption;
       };
+      if (!res.ok) {
+        if (result.code === "association_pending" && result.sessionId) {
+          sessionIdRef.current = result.sessionId;
+          promoteNewSession();
+          reportWorkItemAssociationPending(result);
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
       const realId = result.sessionId;
       sessionIdRef.current = realId;
       if (result.model && newSessionModelOverrideRef.current === selectedModel) {
@@ -862,7 +874,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     } finally {
       ensuringNewSessionRef.current = null;
     }
-  }, [isNew, newSessionCwd, toolPreset]);
+  }, [isNew, newSessionCwd, newSessionDraftKey, promoteNewSession, toolPreset]);
 
   // Opening the System or Tools panel may initialize an otherwise dormant
   // session. This is deliberately a non-prompt command: it creates no message

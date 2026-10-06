@@ -7,6 +7,7 @@ interface OpenFileTabInput {
   modeHint?: "diff";
   page?: number;
   sourceSessionId?: string | null;
+  cwd?: string;
   tabId: string;
 }
 
@@ -18,6 +19,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       label: input.fileName,
       filePath: input.filePath,
       sourceSessionId: input.sourceSessionId,
+      cwd: input.cwd,
       initialDisplayMode: input.modeHint,
       page: input.page,
       viewerState: input.modeHint ? {
@@ -30,7 +32,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     }];
   }
 
-  const sourceChanged = Boolean(
+  const sourceChanged = Boolean(input.cwd && existing.cwd !== input.cwd) || Boolean(
     input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
   );
   const sourceUnchanged = !sourceChanged;
@@ -43,6 +45,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
     let bumpRevision = false;
     if (sourceChanged) {
       next.sourceSessionId = input.sourceSessionId;
+      next.cwd = input.cwd ?? existing.cwd;
       bumpRevision = true;
     }
     if (pageChanged) {

@@ -25,6 +25,7 @@ import type { SessionEntry } from "@/lib/types";
 import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } from "@/lib/subagents";
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
+import { getWorkItemsStorePath, removeWorkItemSessions } from "@/lib/work-items";
 
 export async function GET(
   req: Request,
@@ -356,6 +357,7 @@ export async function DELETE(
       invalidateSessionManagerCache(deletedPath);
     }
     invalidateSessionListCache();
+    await removeWorkItemSessions(getWorkItemsStorePath(), [...deletedSessionIds]);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

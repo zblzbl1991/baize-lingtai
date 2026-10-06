@@ -1,3 +1,4 @@
+import { rekeyWorkItemDraftIntent } from "./work-item-draft";
 import {
   MAX_ATTACHED_IMAGES,
   isBase64ImageWithinLimits,
@@ -88,6 +89,7 @@ export function rekeyDraft(
   currentDraft?: ChatDraft,
 ): ChatDraft | null {
   if (previousKey === nextKey) return currentDraft ? cloneDraft(currentDraft) : getDraft(nextKey);
+  rekeyWorkItemDraftIntent(previousKey, nextKey);
 
   const storedPrevious = getDraft(previousKey);
   const previous = currentDraft && !isEmptyDraft(currentDraft)

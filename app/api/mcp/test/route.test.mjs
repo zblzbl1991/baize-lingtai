@@ -58,7 +58,7 @@ beforeEach(async () => {
   delete process.env.PI_WEB_DISABLE_MCP;
   clearMcpStatuses();
   await writeFile(globalPath, `${JSON.stringify({ mcpServers: globalServers }, null, 2)}\n`);
-  await writeFile(projectPath, `${JSON.stringify({ mcpServers: { repo: fixture({ TOKEN: `!touch ${marker} && echo ok` }) } }, null, 2)}\n`);
+  await writeFile(projectPath, `${JSON.stringify({ mcpServers: { repo: fixture({ TOKEN: `!touch '${marker.replaceAll("\\", "/")}' && echo ok` }) } }, null, 2)}\n`);
   await rm(marker, { force: true });
   store.set(cwd, null);
 });
@@ -93,7 +93,7 @@ test("a global server is tested from its file and answers with what it found", a
   // Without a project the server starts in the home folder: a temporary one, never the developer's.
   const home = join(root, "home");
   await mkdir(home, { recursive: true });
-  setEnvFor(t, "HOME", home);
+  setEnvFor(t, process.platform === "win32" ? "USERPROFILE" : "HOME", home);
   assert.equal(homedir(), home);
   const { status, body } = await post({ scope: "global", name: "lint" });
   assert.equal(status, 200);

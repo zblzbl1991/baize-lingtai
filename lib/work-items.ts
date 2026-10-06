@@ -10,37 +10,24 @@
 // writers — two routes, or a second pi-web process — cannot lose updates.
 // Reads are served from a snapshot cache keyed by store path and refreshed
 // whenever the file's (size, mtimeMs) fingerprint changes; reads never write.
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import lockfile from "proper-lockfile";
 import { writePrivateFileAtomicSync } from "./atomic-file";
 import { serializeByKey } from "./key-serializer";
 import { projectIdentityKey } from "./project-identity";
-import { resolveProject } from "./worktree";
+import { listWorktrees, resolveProject } from "./worktree";
+import { isPathWithinRoots } from "./path-security";
+import type { WorkItem, WorkItemStatus } from "./work-item-types";
+export type { WorkItem, WorkItemStatus } from "./work-item-types";
 
 export const WORK_ITEMS_FORMAT_VERSION = 1;
 export const WORK_ITEMS_FILE_NAME = "pi-web-work-items.json";
 
 /** How long a user-visible Work Item name may be. */
 export const WORK_ITEM_NAME_MAX_LENGTH = 200;
-
-export type WorkItemStatus = "in-progress" | "completed";
-
-export interface WorkItem {
-  id: string;
-  /** projectIdentityKey() of projectRoot: equality only, never displayed. */
-  projectKey: string;
-  /** Original filesystem form, for display and filesystem operations. */
-  projectRoot: string;
-  name: string;
-  status: WorkItemStatus;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  sessionIds: string[];
-}
 
 /**
  * The store exists but its contents cannot be used. The bytes on disk are the
@@ -67,9 +54,12 @@ export function getWorkItemsStorePath(agentDir = getAgentDir()): string {
  * form, plus its identity key for equality. A Work Item record never grants
  * file access — cwd validation and file/Git authorization stay the boundary.
  */
-export async function resolveWorkItemProject(cwd: string): Promise<{ projectRoot: string; projectKey: string }> {
+export async function resolveWorkItemProject(cwd: string): Promise<{ projectRoot: string; projectKey: string; checkoutRoot?: string }> {
   const info = await resolveProject(cwd);
-  return { projectRoot: info.projectRoot, projectKey: projectIdentityKey(info.projectRoot) };
+  const checkouts = await listWorktrees(cwd).catch(() => []);
+  const checkoutRoot = checkouts.filter((tree) => isPathWithinRoots(cwd, new Set([tree.path])))
+    .sort((a, b) => b.path.length - a.path.length)[0]?.path;
+  return { projectRoot: info.projectRoot, projectKey: projectIdentityKey(info.projectRoot), ...(checkoutRoot ? { checkoutRoot } : {}) };
 }
 
 export function isWorkItemsStoreError(error: unknown): error is WorkItemsStoreError {
@@ -100,19 +90,21 @@ function parseWorkItem(value: unknown): WorkItem {
   if (!isRecord(value)) throw new Error("work item is not an object");
   const {
     id, projectKey, projectRoot, name, status,
-    createdAt, updatedAt, completedAt, sessionIds,
+    createdAt, updatedAt, completedAt, sessionIds, sessionCheckoutRoots,
   } = value;
   if (!isWorkItemId(id)) throw new Error("work item id is not a UUID");
   if (typeof projectKey !== "string" || !projectKey) throw new Error(`work item ${id} projectKey`);
-  if (typeof projectRoot !== "string" || !projectRoot) throw new Error(`work item ${id} projectRoot`);
-  if (typeof name !== "string") throw new Error(`work item ${id} name`);
+  if (typeof projectRoot !== "string" || !isAbsolute(projectRoot)) throw new Error(`work item ${id} projectRoot`);
+  if (typeof name !== "string" || !name.trim() || name.length > WORK_ITEM_NAME_MAX_LENGTH) throw new Error(`work item ${id} name`);
   if (status !== "in-progress" && status !== "completed") throw new Error(`work item ${id} status`);
   if (!isIsoTimestamp(createdAt)) throw new Error(`work item ${id} createdAt`);
   if (!isIsoTimestamp(updatedAt)) throw new Error(`work item ${id} updatedAt`);
   if (completedAt !== null && !isIsoTimestamp(completedAt)) throw new Error(`work item ${id} completedAt`);
-  if (!Array.isArray(sessionIds) || sessionIds.some((s) => typeof s !== "string" || !s)) {
+  if ((status === "completed") !== (completedAt !== null)) throw new Error(`work item ${id} completedAt disagrees with status`);
+  if (!Array.isArray(sessionIds) || sessionIds.some((s) => !isSessionId(s))) {
     throw new Error(`work item ${id} sessionIds`);
   }
+  if (sessionCheckoutRoots !== undefined && (!isRecord(sessionCheckoutRoots) || Object.entries(sessionCheckoutRoots).some(([id, root]) => !isSessionId(id) || !sessionIds.includes(id) || typeof root !== "string" || !isAbsolute(root)))) throw new Error(`work item ${id} sessionCheckoutRoots`);
   return {
     id,
     projectKey,
@@ -123,6 +115,7 @@ function parseWorkItem(value: unknown): WorkItem {
     updatedAt,
     completedAt,
     sessionIds: [...new Set(sessionIds as string[])],
+    ...(sessionCheckoutRoots ? { sessionCheckoutRoots: { ...sessionCheckoutRoots as Record<string, string> } } : {}),
   };
 }
 
@@ -147,6 +140,9 @@ export function resolveAssociationConflicts(items: WorkItem[]): WorkItem[] {
       }
     }
   }
+  for (const item of resolved.values()) {
+    if (item.sessionCheckoutRoots) item.sessionCheckoutRoots = Object.fromEntries(Object.entries(item.sessionCheckoutRoots).filter(([id]) => item.sessionIds.includes(id)));
+  }
   return items.map((item) => resolved.get(item.id)!);
 }
 
@@ -169,6 +165,7 @@ function parseStore(path: string, contents: string): WorkItem[] {
   let items: WorkItem[];
   try {
     items = parsed.workItems.map(parseWorkItem);
+    if (new Set(items.map((item) => item.id)).size !== items.length) throw new Error("duplicate work item id");
   } catch (error) {
     throw new WorkItemsStoreError("read", `Failed to read ${path}: invalid work item — ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -193,8 +190,9 @@ function fingerprintOf(path: string): { size: number; mtimeMs: number } | null {
   try {
     const stats = statSync(path);
     return { size: stats.size, mtimeMs: stats.mtimeMs };
-  } catch {
-    return null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw new WorkItemsStoreError("read", `Cannot inspect store: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -295,36 +293,25 @@ function truncateName(name: string): string {
 
 function withLockAndFreshItems<T>(
   storePath: string,
-  update: (items: WorkItem[]) => T,
+  update: (items: WorkItem[]) => T | Promise<T>,
 ): Promise<T> {
   return serializeMutation(storePath, async () => {
     mkdirSync(dirname(storePath), { recursive: true });
-    // proper-lockfile needs a file to lock. The anchor is written only when
-    // the store does not exist yet, and it is a valid empty store so a crash
-    // before the real write still leaves a readable store. It is internal
-    // plumbing, not user data, so it bypasses the injected writer: the
-    // injected seam exists to fail the real store write. A store that
-    // existed is parsed strictly (an unreadable store fails).
-    let createdHere = false;
-    try {
-      writeFileSync(
-        storePath,
-        `${JSON.stringify({ version: WORK_ITEMS_FORMAT_VERSION, workItems: [] }, null, 2)}\n`,
-        { flag: "wx", mode: 0o600 },
-      );
-      createdHere = true;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
+    // realpath:false locks the stable destination name even before it exists.
+    // Touch the actual store only after acquiring that lock.
     const release = await lockfile.lock(storePath, { realpath: false, retries: 10 });
     try {
       // Reread under the lock: another process may have written since our
       // last look, and the cache must not shadow a newer file.
       snapshotCache().delete(storePath);
-      const items = !createdHere && existsSync(storePath)
-        ? parseStore(storePath, readFileSync(storePath, "utf8"))
-        : [];
-      return update(items);
+      let items: WorkItem[];
+      try { items = parseStore(storePath, readFileSync(storePath, "utf8")); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") items = [];
+        else if (isWorkItemsStoreError(error)) throw error;
+        else throw new WorkItemsStoreError("read", String(error));
+      }
+      return await update(items);
     } finally {
       await release();
     }
@@ -335,12 +322,14 @@ export interface CreateWorkItemInput {
   projectKey: string;
   projectRoot: string;
   name: string;
+  sessionIds?: string[];
 }
 
 export interface WorkItemsMutationOptions {
   now?: Date;
   /** Test seam: replace the private atomic writer to inject write failures. */
   write?: (path: string, contents: string) => void;
+  resolveSession?: (id: string) => Promise<{ projectKey: string; checkoutRoot?: string } | null>;
 }
 
 /** Create an empty, in-progress Work Item. `now` is injectable for tests. */
@@ -355,8 +344,8 @@ export async function createWorkItem(
   if (typeof input.projectKey !== "string" || !input.projectKey) {
     throw new WorkItemsStoreError("write", "Work Item projectKey must not be empty");
   }
-  if (typeof input.projectRoot !== "string" || !input.projectRoot) {
-    throw new WorkItemsStoreError("write", "Work Item projectRoot must not be empty");
+  if (typeof input.projectRoot !== "string" || !isAbsolute(input.projectRoot)) {
+    throw new WorkItemsStoreError("write", "Work Item projectRoot must be absolute");
   }
   const timestamp = now.toISOString();
   const item: WorkItem = {
@@ -368,12 +357,113 @@ export async function createWorkItem(
     createdAt: timestamp,
     updatedAt: timestamp,
     completedAt: null,
-    sessionIds: [],
+    sessionIds: [...new Set(input.sessionIds ?? [])],
   };
-  return withLockAndFreshItems(storePath, (items) => {
+  return withLockAndFreshItems(storePath, async (items) => {
+    for (const id of item.sessionIds) {
+      const location = await validateSessionProject(id, item.projectKey, options);
+      if (location.checkoutRoot) (item.sessionCheckoutRoots ??= {})[id] = location.checkoutRoot;
+      const owner = associationOwner(items, id);
+      if (owner) throw new WorkItemRequestError("association_conflict", 409, owner);
+    }
     const next = resolveAssociationConflicts([...items, item]);
     writeStore(storePath, next, options.write);
     return item;
+  });
+}
+
+export class WorkItemRequestError extends Error {
+  constructor(public readonly code: string, public readonly status: number, public readonly currentWorkItemId: string | null = null) {
+    super(code);
+    this.name = "WorkItemRequestError";
+  }
+}
+export function isWorkItemRequestError(error: unknown): error is WorkItemRequestError {
+  return error instanceof WorkItemRequestError || (error instanceof Error && error.name === "WorkItemRequestError" && "status" in error && [400, 404, 409].includes(error.status as number) && "code" in error && typeof error.code === "string");
+}
+
+export function associationOwner(items: readonly WorkItem[], sessionId: string): string | null {
+  return [...items].sort((a, b) => a.id.localeCompare(b.id)).find((item) => item.sessionIds.includes(sessionId))?.id ?? null;
+}
+
+async function validateSessionProject(sessionId: string, projectKey: string, options: WorkItemsMutationOptions) {
+  if (!isSessionId(sessionId)) throw new WorkItemRequestError("invalid-request", 400);
+  const session = await options.resolveSession?.(sessionId);
+  if (!session) throw new WorkItemRequestError("session-unavailable", 404);
+  if (session.projectKey !== projectKey) throw new WorkItemRequestError("different-project", 400);
+  return session;
+}
+
+function withSessionCheckoutRoot(item: WorkItem, sessionId: string, root?: string): WorkItem {
+  if (!root || item.sessionCheckoutRoots?.[sessionId] === root) return item;
+  return { ...item, sessionCheckoutRoots: { ...item.sessionCheckoutRoots, [sessionId]: root } };
+}
+
+export async function attachWorkItemSession(storePath: string, itemId: string, sessionId: string, expectedWorkItemId: string | null, options: WorkItemsMutationOptions): Promise<WorkItem> {
+  return withLockAndFreshItems(storePath, async (items) => {
+    const target = items.find((item) => item.id === itemId);
+    if (!target) throw new WorkItemRequestError("not-found", 404);
+    const location = await validateSessionProject(sessionId, target.projectKey, options);
+    const owner = associationOwner(items, sessionId);
+    if (owner === itemId) {
+      // Backfill older v1 Associations while this checkout still exists.
+      // No Association/status/name changed, so activity timestamps stay put.
+      const updated = withSessionCheckoutRoot(target, sessionId, location.checkoutRoot);
+      if (updated !== target) writeStore(storePath, items.map((item) => item.id === itemId ? updated : item), options.write);
+      return updated;
+    }
+    if (owner !== expectedWorkItemId) throw new WorkItemRequestError("association_conflict", 409, owner);
+    const timestamp = (options.now ?? new Date()).toISOString();
+    const next = items.map((item) => item.id === itemId
+      ? { ...item, sessionIds: [...item.sessionIds, sessionId], ...(location.checkoutRoot ? { sessionCheckoutRoots: { ...item.sessionCheckoutRoots, [sessionId]: location.checkoutRoot } } : {}), updatedAt: timestamp }
+      : item.sessionIds.includes(sessionId) ? { ...item, sessionIds: item.sessionIds.filter((id) => id !== sessionId), ...(item.sessionCheckoutRoots ? { sessionCheckoutRoots: Object.fromEntries(Object.entries(item.sessionCheckoutRoots).filter(([id]) => id !== sessionId)) } : {}), updatedAt: timestamp } : item);
+    writeStore(storePath, next, options.write);
+    return next.find((item) => item.id === itemId)!;
+  });
+}
+
+export async function detachWorkItemSession(storePath: string, itemId: string, sessionId: string, options: WorkItemsMutationOptions = {}): Promise<void> {
+  await withLockAndFreshItems(storePath, (items) => {
+    const item = items.find((item) => item.id === itemId);
+    if (!item) throw new WorkItemRequestError("not-found", 404);
+    if (!item.sessionIds.includes(sessionId)) return;
+    const updated = { ...item, sessionIds: item.sessionIds.filter((id) => id !== sessionId), ...(item.sessionCheckoutRoots ? { sessionCheckoutRoots: Object.fromEntries(Object.entries(item.sessionCheckoutRoots).filter(([id]) => id !== sessionId)) } : {}), updatedAt: (options.now ?? new Date()).toISOString() };
+    writeStore(storePath, items.map((i) => i.id === itemId ? updated : i), options.write);
+  });
+}
+
+export async function removeWorkItemSessions(storePath: string, sessionIds: readonly string[], options: WorkItemsMutationOptions = {}): Promise<void> {
+  const removed = new Set(sessionIds);
+  await withLockAndFreshItems(storePath, (items) => {
+    let changed = false;
+    const next = items.map((item) => {
+      const ids = item.sessionIds.filter((id) => !removed.has(id));
+      if (ids.length === item.sessionIds.length) return item;
+      changed = true;
+      return { ...item, sessionIds: ids, ...(item.sessionCheckoutRoots ? { sessionCheckoutRoots: Object.fromEntries(Object.entries(item.sessionCheckoutRoots).filter(([id]) => !removed.has(id))) } : {}), updatedAt: (options.now ?? new Date()).toISOString() };
+    });
+    if (changed) writeStore(storePath, next, options.write);
+  });
+}
+
+/** Commit a fork's inherited Association only while the source still has the captured owner. */
+export async function inheritWorkItemSession(storePath: string, sourceId: string, newId: string, expectedOwner: string, options: WorkItemsMutationOptions): Promise<void> {
+  await withLockAndFreshItems(storePath, async (items) => {
+    const owner = associationOwner(items, sourceId);
+    if (owner !== expectedOwner) throw new WorkItemRequestError("association_conflict", 409, owner);
+    const target = items.find((item) => item.id === expectedOwner);
+    if (!target) throw new WorkItemRequestError("not-found", 404);
+    const location = await validateSessionProject(newId, target.projectKey, options);
+    const newOwner = associationOwner(items, newId);
+    const checkoutRoot = location.checkoutRoot ?? target.sessionCheckoutRoots?.[sourceId];
+    if (newOwner === expectedOwner) {
+      const updated = withSessionCheckoutRoot(target, newId, checkoutRoot);
+      if (updated !== target) writeStore(storePath, items.map((item) => item.id === expectedOwner ? updated : item), options.write);
+      return;
+    }
+    if (newOwner) throw new WorkItemRequestError("association_conflict", 409, newOwner);
+    const updated = { ...target, sessionIds: [...target.sessionIds, newId], ...(checkoutRoot ? { sessionCheckoutRoots: { ...target.sessionCheckoutRoots, [newId]: checkoutRoot } } : {}), updatedAt: (options.now ?? new Date()).toISOString() };
+    writeStore(storePath, items.map((item) => item.id === expectedOwner ? updated : item), options.write);
   });
 }
 

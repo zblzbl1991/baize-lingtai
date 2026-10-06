@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readSourceFile } from "node:fs/promises";
+const readFile = async (...args) => (await readSourceFile(...args)).replace(/\r\n/g, "\n");
 import test, { mock } from "node:test";
 import { createJiti } from "jiti";
 
@@ -9,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { McpConfig, McpConfigView } = await jiti.import("./McpConfig.tsx");
 const { ConfigSidebarGroupSwitch } = await jiti.import("./SettingsUi.tsx");
 const { enLocale } = await jiti.import("@/lib/i18n/messages/en.ts");

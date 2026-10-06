@@ -1,8 +1,35 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { stripTypeScriptTypes } from "node:module";
+import vm from "node:vm";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
+
+test("resuming the already-selected session clears the Workbench URL without remounting chat", () => {
+  const callback = (name, next) => source.slice(source.indexOf(`  const ${name} = useCallback`), source.indexOf(next, source.indexOf(`  const ${name} = useCallback`)));
+  const code = callback("returnToChat", "  // Single active panel") + callback("handleSelectSession", "  const handleNewSession");
+  const session = { id: "550e8400-e29b-41d4-a716-446655440000", cwd: "/repo" };
+  const writes = [];
+  let remounts = 0;
+  const context = {
+    useCallback: (fn) => fn, activeViewRef: { current: "workbench" },
+    setActiveViewTracked(view) { context.activeViewRef.current = view; },
+    applyViewToLocation(view) { const params = new URLSearchParams(context.window.location.search); if (view === "chat") params.delete("view"); writes.push(`?${params}`); },
+    activeNewSessionDraftKeyRef: { current: null }, activeProjectKeyRef: { current: "/repo" },
+    newSessionCwd: null, selectedSession: session, activeCwd: "/repo", activeFileTabId: null, isMobile: false,
+    invalidateWorkspaceRestore() {}, workspaceKeyOf: (s) => s.cwd, hrefPreservingView: (q) => q,
+    router: { replace: (url) => writes.push(url) }, window: { location: { search: `?session=${session.id}&view=workbench` } }, URLSearchParams,
+  };
+  for (const [, setter] of code.matchAll(/\b(set[A-Z]\w*)(?=\()/g)) if (!context[setter]) context[setter] = () => {};
+  context.setSessionKey = () => remounts++;
+  vm.createContext(context);
+  vm.runInContext(stripTypeScriptTypes(`${code}\nglobalThis.select = handleSelectSession;`), context);
+  context.select(session);
+  assert.equal(context.activeViewRef.current, "chat");
+  assert.deepEqual(writes, [`?session=${session.id}`]);
+  assert.equal(remounts, 0);
+});
 
 test("the Workbench view restores from ?view=workbench", () => {
   assert.match(
@@ -55,9 +82,9 @@ test("explicit session, new-session, and project selections return to chat", () 
   assert.match(source.slice(guardEnd, guardEnd + 300), /returnToChat\(\);/);
 });
 
-test("the Workbench replaces the chat area in place", () => {
+test("the Workbench keeps the composer mounted while hiding the chat area", () => {
   assert.match(
     source,
-    /\{activeView === "workbench" \? \(\s*<WorkbenchView \/>\s*\) : showChat \? \(/,
+    /display: activeView === "workbench" \? "none" : "block"/,
   );
 });

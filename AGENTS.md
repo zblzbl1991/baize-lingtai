@@ -8,6 +8,8 @@ npm run dev   # port 30141
 
 Typecheck: `node_modules/.bin/tsc --noEmit` · Lint: `npm run lint`
 
+Tests: `npm test` (`scripts/test.mjs` sets isolated Windows fixtures and Git Bash; see `docs/agents/workbench.md`).
+
 **Never run `next build` during dev**: it pollutes `.next/` and breaks `npm run dev`.
 
 ### Dev server troubleshooting
@@ -57,6 +59,10 @@ app/api/
   git/status/route.ts              GET changed files for a cwd
   git/diff/route.ts                GET diff of one changed file
   worktrees/route.ts               GET/POST/DELETE git worktrees
+  work-items/route.ts              GET/POST Work Item collection and atomic save-as
+  work-items/[id]/route.ts         PATCH/DELETE Work Item metadata
+  work-items/[id]/sessions/**      POST attach/confirmed move/recovery | DELETE detach
+  work-items/[id]/outputs/route.ts  GET bounded local-write Outputs and current file/Git states
   terminal/route.ts                POST create a terminal session
   terminal/[id]/route.ts           GET { id, cwd } (404 once closed; stream at [id]/events) | POST input/resize | DELETE kill
   mcp/route.ts                     GET [?cwd=] Settings › MCP overview, files only | POST add/enable/disable/remove/undo/set-enabled/set-exposure/sign-out
@@ -111,6 +117,15 @@ lib/
   display-path.ts           display-only ~ / ./ path shortening for settings panels
   default-cwd.ts            dated ~/pi-cwd/YYYYMMDD path for "Use default directory"
   worktree.ts               project/worktree resolution and git worktree operations
+  work-items.ts             authoritative locked Work Item store and Association invariants
+  work-item-types.ts        client-safe Work Item records
+  work-item-sessions.ts     read-only catalogue, Project checks and conservative liveness
+  work-item-lifecycle.ts    server creation/fork Association and partial-failure recovery
+  work-item-draft.ts        per-draft Association intent in tab storage
+  work-item-composer.ts     independent parked drafts per Project and Work Item
+  work-item-outputs.ts      bounded raw write evidence and current file/Git projection
+  work-item-output-types.ts client-safe Outputs response
+  work-items-api.ts         structured Work Item route errors
   draft-store.ts            local draft persistence
   extension-ui-queue.ts     FIFO queues for extension dialogs and custom panels, by request id
   markdown.ts               shared markdown helpers
@@ -146,6 +161,9 @@ lib/
 
 components/
   AppShell.tsx             layout, URL state, tab management
+  WorkbenchView.tsx        cross-Project Work Item CRUD and detail entry
+  WorkItemDetail.tsx       member sessions, resume/new, Outputs and current diffs
+  SessionWorkItemControls.tsx save-as, attach/confirmed move and detach in chat
   SessionSidebar.tsx       session tree + FileExplorer
   ChatWindow.tsx           chat composition + completion sound
   ChatInput.tsx            input bar + model/thinking/tools/compact controls
@@ -186,6 +204,8 @@ hooks/
 ## Topic Notes
 
 Design decisions and traps live in `docs/agents/`, one note per area. Read every note whose files a change touches before making it. Add new notes to the area's file, not here.
+
+- [workbench.md](docs/agents/workbench.md): Work Item storage/Association, server lifecycle recovery, draft preservation, bounded Outputs, cross-worktree file/diff routing and demo mocks. Files: `lib/work-item*.ts`, `app/api/work-items/**`, Work Item wiring in agent/session routes and `lib/rpc-manager.ts`, `components/WorkbenchView.tsx`, `components/WorkItemDetail.tsx`, `components/SessionWorkItemControls.tsx`, Workbench/draft/file-tab wiring in AppShell, `demo/mock/work-items.ts`.
 
 - [sessions.md](docs/agents/sessions.md): AgentSession lifecycle and shutdown, fork vs in-session branching, session file rewrites, toolCall normalization, SSE reconnect and tool events, transcript system / usage / context-edit entries, running-state polling, exported HTML. Files: `lib/rpc-manager.ts`, `lib/session-reader.ts`, `lib/normalize.ts`, `hooks/useAgentSession.ts`, `app/api/agent/**`, `app/api/sessions/**`, `components/BranchNavigator.tsx`, `components/MessageView.tsx`, `components/CodemodeToolView.tsx`.
 - [tools.md](docs/agents/tools.md): tool presets and Chat only, exact system prompts, tool exposure, the codemode / tool-search / mcp built-ins, the read-only MCP policy, the Code mode and PowerShell `defaultTools` switches. Files: `lib/tool-presets.ts`, `lib/tool-preset-preference.ts`, `lib/chat-only.ts`, `lib/exact-system-prompt.ts`, `lib/builtin-extensions.ts`, `lib/mcp-read-only-policy.ts`, `lib/codemode-settings.ts`, `lib/powershell-settings.ts`, `lib/global-settings-file.ts`, `app/api/agent/new/route.ts`, `app/api/tools/settings/route.ts`, tool selection in `lib/rpc-manager.ts`.

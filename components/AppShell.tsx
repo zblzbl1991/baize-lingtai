@@ -6,6 +6,8 @@ import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar } from "./SessionSidebar";
 import { ChatWindow } from "./ChatWindow";
 import WorkbenchView from "./WorkbenchView";
+import { SessionWorkItemControls } from "./SessionWorkItemControls";
+import { parkComposerDraft, restoreComposerDraft } from "@/lib/work-item-composer";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
 import { TabBar, type Tab } from "./TabBar";
@@ -37,7 +39,6 @@ import { setupPushSubscription } from "@/lib/push-client";
 import { getInitialNavigation, withTabOpen, type AppView } from "@/lib/initial-navigation";
 import { clearTabOpenSession, getTabOpen, setTabOpenNewSession, setTabOpenSession } from "@/lib/tab-session";
 import { mergeCatalogRow } from "./session-catalog-helpers";
-import { rekeyDraft } from "@/lib/draft-store";
 import {
   clearLastOpen,
   getLastOpenSession,
@@ -73,10 +74,6 @@ type AutoNameStatus =
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
-
-function parkedNewSessionDraftKey(cwd: string): string {
-  return `parked-new:${cwd}`;
-}
 
 export function AppShell() {
   const router = useRouter();
@@ -681,7 +678,7 @@ export function AppShell() {
       // remembered session belongs to another worktree of this project.
       const activeDraftKey = activeNewSessionDraftKeyRef.current;
       if (activeDraftKey) {
-        rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
+        parkComposerDraft(activeDraftKey, cwd);
       }
       activeNewSessionDraftKeyRef.current = null;
       // Selecting the session must remount the chat with the session
@@ -744,16 +741,16 @@ export function AppShell() {
     // Close any session that belongs to a different project — it no longer
     // matches the selected project directory.
     // A real project switch is an explicit navigation: leave the Workbench.
-    returnToChat();
+    if (currentProject !== null || currentFreshCwd !== null) returnToChat();
     const previousDraftKey = activeNewSessionDraftKeyRef.current;
     if (previousDraftKey && currentFreshCwd) {
-      rekeyDraft(previousDraftKey, parkedNewSessionDraftKey(currentFreshCwd));
+      parkComposerDraft(previousDraftKey, currentFreshCwd);
     }
     const draftId = typeof crypto.randomUUID === "function"
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const draftKey = `new:${draftId}:${cwd}`;
-    rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
+    restoreComposerDraft(draftKey, cwd);
     setNewSessionDraftId(draftId);
     activeNewSessionDraftKeyRef.current = draftKey;
     setSelectedSession(null);
@@ -781,7 +778,7 @@ export function AppShell() {
       // the default welcome page when none is remembered.
       restoreWorkspaceContext(newProject, cwd);
     }
-    router.replace(typeof window !== "undefined" ? window.location.pathname : "/", { scroll: false });
+    router.replace(activeViewRef.current === "workbench" ? "?view=workbench" : (typeof window !== "undefined" ? window.location.pathname : "/"), { scroll: false });
   }, [activeCwd, activeFileTabId, invalidateWorkspaceRestore, newSessionCwd, returnToChat, router, selectedSession, restoreWorkspaceContext]);
 
   const handleSelectSession = useCallback((session: SessionInfo, isRestore = false, entryId?: string, blockIndex?: number) => {
@@ -793,7 +790,7 @@ export function AppShell() {
     const activeDraftKey = activeNewSessionDraftKeyRef.current;
     const activeDraftCwd = newSessionCwd ?? (selectedSession === null ? activeCwd : null);
     if (activeDraftKey && activeDraftCwd) {
-      rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(activeDraftCwd));
+      parkComposerDraft(activeDraftKey, activeDraftCwd);
     }
     activeNewSessionDraftKeyRef.current = null;
     // Adopt an explicitly selected session before the sidebar reports its cwd.
@@ -815,6 +812,7 @@ export function AppShell() {
       const sameProject =
         workspaceKeyOf(selectedSession) === workspaceKeyOf(session);
       if (selectedSession.id === session.id && sameProject) {
+        if (new URLSearchParams(window.location.search).get("view") === "workbench") applyViewToLocation("chat");
         if (isMobile) setSidebarOpen(false);
         return;
       }
@@ -844,13 +842,15 @@ export function AppShell() {
     if (!isRestore || new URLSearchParams(window.location.search).get("session") !== session.id) {
       router.replace(hrefPreservingView(`?session=${encodeURIComponent(session.id)}`), { scroll: false });
     }
-  }, [activeCwd, activeFileTabId, hrefPreservingView, invalidateWorkspaceRestore, returnToChat, router, isMobile, newSessionCwd, selectedSession]);
+  }, [activeCwd, activeFileTabId, applyViewToLocation, hrefPreservingView, invalidateWorkspaceRestore, returnToChat, router, isMobile, newSessionCwd, selectedSession]);
 
-  const handleNewSession = useCallback((sessionId: string, cwd: string) => {
+  const handleNewSession = useCallback((sessionId: string, cwd: string, workItemId?: string) => {
     returnToChat();
     invalidateWorkspaceRestore();
     const draftKey = `new:${sessionId}:${cwd}`;
-    rekeyDraft(parkedNewSessionDraftKey(cwd), draftKey);
+    const previous = activeNewSessionDraftKeyRef.current;
+    if (previous && (newSessionCwd ?? activeCwd)) parkComposerDraft(previous, (newSessionCwd ?? activeCwd)!);
+    restoreComposerDraft(draftKey, cwd, workItemId);
     activeNewSessionDraftKeyRef.current = draftKey;
     setNewSessionDraftId(sessionId);
     setSelectedSession(null);
@@ -865,7 +865,7 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (isMobile) setSidebarOpen(false);
     router.replace(`?cwd=${encodeURIComponent(cwd)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, returnToChat, router, isMobile]);
+  }, [activeCwd, newSessionCwd, invalidateWorkspaceRestore, returnToChat, router, isMobile]);
 
   // Global keyboard shortcuts (handles Esc, Ctrl+Alt+N etc.)
   useGlobalKeyboardShortcuts({
@@ -910,6 +910,22 @@ export function AppShell() {
     }
   }, [handleSelectSession, sessionCatalog]);
 
+  const [associationRecovery, setAssociationRecovery] = useState<{ sessionId: string; workItemId: string } | null>(null);
+  const [recoveryError, setRecoveryError] = useState(false);
+  useEffect(() => {
+    const pending = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId: string; workItemId: string }>).detail;
+      setAssociationRecovery(detail); setRecoveryError(false);
+      void handleOpenSession(detail.sessionId);
+    };
+    const settled = (event: Event) => {
+      if ((event as CustomEvent).detail?.sessionId === associationRecovery?.sessionId) setAssociationRecovery(null);
+    };
+    window.addEventListener("work-item-association-pending", pending);
+    window.addEventListener("work-item-associated", settled);
+    return () => { window.removeEventListener("work-item-association-pending", pending); window.removeEventListener("work-item-associated", settled); };
+  }, [associationRecovery, handleOpenSession]);
+
   // Called by ChatWindow when a new session gets its real id from pi
   const handleSessionCreated = useCallback((session: SessionInfo, sourceDraftKey: string) => {
     setRefreshKey((k) => k + 1);
@@ -919,8 +935,8 @@ export function AppShell() {
     setNewSessionCwd(null);
     setSelectedSession(session);
     hydrateSelectedSession(session.id);
-    router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+    router.replace(hrefPreservingView(`?session=${encodeURIComponent(session.id)}`), { scroll: false });
+  }, [hrefPreservingView, invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
   const deliverSessionNotification = useCallback(({
     targetSession,
@@ -1045,8 +1061,8 @@ export function AppShell() {
       transient: false,
     }));
     hydrateSelectedSession(newSessionId);
-    router.replace(`?session=${encodeURIComponent(newSessionId)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+    router.replace(hrefPreservingView(`?session=${encodeURIComponent(newSessionId)}`), { scroll: false });
+  }, [hrefPreservingView, invalidateWorkspaceRestore, router, hydrateSelectedSession]);
 
   const handleAskInNewChat = useCallback(async (
     prompt: string,
@@ -1087,14 +1103,14 @@ export function AppShell() {
       setSystemTools(null);
       setSystemInfoLoading(false);
       setActiveTopPanel(null);
-      router.replace(cwd ? `?cwd=${encodeURIComponent(cwd)}` : (typeof window !== "undefined" ? window.location.pathname : "/"), { scroll: false });
+      router.replace(cwd ? hrefPreservingView(`?cwd=${encodeURIComponent(cwd)}`) : (activeViewRef.current === "workbench" ? "?view=workbench" : window.location.pathname), { scroll: false });
     }
-  }, [invalidateWorkspaceRestore, selectedSession, router]);
+  }, [hrefPreservingView, invalidateWorkspaceRestore, selectedSession, router]);
 
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff"; page?: number },
+    options?: { sourceSessionId?: string | null; modeHint?: "diff"; page?: number; cwd?: string },
   ) => {
     const sourceSessionId = options?.sourceSessionId;
     const modeHint = options?.modeHint;
@@ -1106,6 +1122,7 @@ export function AppShell() {
       modeHint,
       page,
       sourceSessionId,
+      cwd: options?.cwd,
       tabId,
     }));
     setActiveFileTabId(tabId);
@@ -2410,10 +2427,24 @@ export function AppShell() {
         </div>
 
         {/* Chat content */}
-        <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
-          {activeView === "workbench" ? (
-            <WorkbenchView />
-          ) : showChat ? (
+        <div style={{ flex: 1, overflow: "hidden", position: "relative", display: "flex", flexDirection: "column" }}>
+          {associationRecovery && <div role="alert" className="workbench-session-controls">
+            <span>{translate("workbench.recovery")}</span>
+            <button onClick={async () => {
+              const response = await fetch(`/api/work-items/${associationRecovery.workItemId}/sessions`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId: associationRecovery.sessionId, expectedWorkItemId: null, recover: true }) });
+              if (response.ok) { window.dispatchEvent(new CustomEvent("work-item-associated", { detail: associationRecovery })); setAssociationRecovery(null); } else setRecoveryError(true);
+            }}>{translate("workbench.retry")}</button>
+            {recoveryError && <span>{translate("workbench.conflict")}</span>}
+          </div>}
+          {activeView === "chat" && selectedSession && <SessionWorkItemControls key={selectedSession.id} session={selectedSession} />}
+          <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+          {activeView === "workbench" && (
+            <WorkbenchView onOpenSession={(id) => { void handleOpenSession(id); }} onNewSession={(item) => {
+              handleNewSession(crypto.randomUUID(), item.projectRoot, item.id);
+            }} onOpenOutput={(file, diff) => handleOpenFile(file.filePath, getFileName(file.filePath), { sourceSessionId: file.sourceSessionId, cwd: file.checkoutRoot ?? file.sourceCwd, modeHint: diff ? "diff" : undefined })} />
+          )}
+          <div style={{ display: activeView === "workbench" ? "none" : "block", height: "100%" }}>
+          {showChat ? (
             <ChatWindow
               key={sessionKey}
               session={selectedSession}
@@ -2490,6 +2521,8 @@ export function AppShell() {
               </div>
             )
           ) : null}
+          </div>
+        </div>
         </div>
       </div>
 
@@ -2583,7 +2616,7 @@ export function AppShell() {
             <FileViewer
               key={`${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
-              cwd={activeCwd ?? undefined}
+              cwd={activeFileTab.cwd ?? activeCwd ?? undefined}
               sourceSessionId={activeFileTab.sourceSessionId}
               gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}

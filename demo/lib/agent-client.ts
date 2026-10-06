@@ -18,6 +18,11 @@ export class AgentCommandError extends Error {
     this.name = "AgentCommandError";
   }
 }
+export function reportWorkItemAssociationPending(body: { code?: string; sessionId?: string; workItemId?: string }) {
+  if (body.code === "association_pending" && body.sessionId && body.workItemId && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("work-item-association-pending", { detail: body }));
+  }
+}
 
 export function isPromptRejectedError(error: unknown): error is AgentCommandError {
   return error instanceof AgentCommandError
@@ -40,8 +45,11 @@ export async function sendAgentCommand<T = unknown>(
     error?: string;
     code?: string;
     accepted?: boolean;
+    sessionId?: string;
+    workItemId?: string;
   };
   if (!res.ok || body.error) {
+    reportWorkItemAssociationPending(body);
     throw new AgentCommandError(
       body.error ?? `HTTP ${res.status}`,
       res.status,

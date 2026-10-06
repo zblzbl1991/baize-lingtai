@@ -13,5 +13,6 @@ Settled shape from the adoption interview: a Work Item belongs to exactly one Pr
 - Association inheritance adds a fork to the same Work Item and retains the source. Creation and fork endpoints settle Association on the server before reporting full success; filesystem and store writes remain separate operations with explicit partial-failure recovery.
 - Completion is an organizational status, not another agent permission policy. Only an explicit status action completes or reopens a Work Item; ordinary session operations remain available.
 - Outputs are a bounded projection of supported writes in currently associated transcripts, including writes before an explicit attach. They do not retain historical file bytes or attribute the current working-tree diff exclusively to one Work Item. Shell writes and MCP names without local-write evidence are outside the initial extraction coverage.
+- Association metadata records the checkout boundary validated at establishment. After a checkout disappears, cwd alone cannot distinguish a legal sibling write from an outside path; the saved boundary preserves missing-path rows without authorizing existing files or retaining file versions.
 
 The detailed contracts and ticket acceptance criteria live in `.scratch/workbench/spec.md` and `.scratch/workbench/issues/`.

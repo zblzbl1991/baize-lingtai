@@ -181,7 +181,8 @@ test("a labeled example shows what it is beside its text, and the box gets the t
   }));
   assert.match(html, /<button type="button" class="config-add-source-example has-label"><span class="config-add-source-example-label">Zed settings<\/span><span class="config-add-source-example-value">\{ &quot;context_servers&quot;: \{\} \}<\/span><\/button>/);
   assert.match(html, /<button type="button" class="config-add-source-example">plain<\/button>/);
-  const { readFile } = await import("node:fs/promises");
+  const { readFile: readSourceFile } = await import("node:fs/promises");
+  const readFile = async (...args) => (await readSourceFile(...args)).replace(/\r\n/g, "\n");
   const source = await readFile(new URL("./SettingsUi.tsx", import.meta.url), "utf8");
   assert.match(source, /onClick=\{\(\) => onValueChange\(example\.value\)\}/, "the label never reaches the box");
 });
@@ -215,7 +216,8 @@ test("the multiline add box is a textarea where Enter adds a line and Cmd/Ctrl+E
 });
 
 test("the single-line add box keeps taking focus, and the multiline one never on a coarse pointer", async () => {
-  const { readFile } = await import("node:fs/promises");
+  const { readFile: readSourceFile } = await import("node:fs/promises");
+  const readFile = async (...args) => (await readSourceFile(...args)).replace(/\r\n/g, "\n");
   const source = await readFile(new URL("./SettingsUi.tsx", import.meta.url), "utf8");
   const effect = source.slice(source.indexOf("useEffect(() => {\n    if (!multiline)"), source.indexOf("}, [multiline]);"));
   assert.match(effect, /if \(!multiline\) \{\n\s*inputRef\.current\?\.focus\(\);\n\s*return;\n\s*\}/);

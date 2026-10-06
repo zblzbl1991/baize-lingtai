@@ -1,8 +1,8 @@
 # Spec: Workbench — Work Items for Pi Web
 
-Status: ready-for-agent
+Status: done
 
-Revised: 2026-10-06 after design review. This spec defines the intended behavior; the feature is not implemented yet.
+Revised: 2026-10-06 after design review. This spec defines the implemented behavior. Tickets 01–05 are complete; see verification.md for evidence and final gates.
 
 Glossary: see `CONTEXT.md` (Work Item, Workbench, Project, Association, Unassociated Session, Work Item Outputs, Completed Work Item). Direction: see `docs/adr/0007-adopt-workbench-domain-freeze-baize-buddy.md`.
 
@@ -47,7 +47,7 @@ Pi Web adopts the Work Item (工作目标) concept: a durable, outcome-oriented 
 
 ### Work Item state and persistence (01)
 
-- **Record.** `id` (uuid), server-derived `projectKey`, canonical `projectRoot`, `name`, `status` (`in-progress` | `completed`), `createdAt`, `updatedAt`, nullable `completedAt`, and unique `sessionIds`. Project identity reuses `resolveProject()` and `projectIdentityKey()`; main checkout and linked worktrees share a key. Paths retain their original filesystem form; identity keys are for equality only.
+- **Record.** `id` (uuid), server-derived `projectKey`, canonical `projectRoot`, `name`, `status` (`in-progress` | `completed`), `createdAt`, `updatedAt`, nullable `completedAt`, and unique `sessionIds`. Optional version-1 `sessionCheckoutRoots` records server-validated checkout boundaries per Association so deleted checkouts retain their original paths, including sibling writes from a subdirectory cwd; it grants no file access. Project identity reuses `resolveProject()` and `projectIdentityKey()`; main checkout and linked worktrees share a key. Paths retain their original filesystem form; identity keys are for equality only.
 - **Ordering.** Items sort by `updatedAt` descending, then id ascending. Member sessions sort from current session metadata by `modified` descending, then id ascending; stored array order is not the activity authority. Ordinary session activity does not rewrite Work Item timestamps. Real name/status/Association changes update `updatedAt`; no-ops do not. Completing sets `completedAt`; reopening clears it; repeated status requests preserve timestamps.
 - **Completion.** Status is organizational and does not change native session permissions. Viewing, prompting, attaching, starting, or forking a session leaves a completed Work Item completed. Only an explicit status action reopens it; completed detail exposes that action.
 - **Authoritative store.** One versioned `pi-web-work-items.json` in `getAgentDir()` (respects `PI_CODING_AGENT_DIR`). Reuse `writePrivateFileAtomicSync()` and a lockfile-guarded read-modify-write, with serialization within the process. Reread and validate the latest disk contents under the lock; cache only validated snapshots, keyed by store path and refreshed when the disk fingerprint changes. This is user data, so the session index's best-effort persistence policy does not apply.

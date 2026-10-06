@@ -8,6 +8,7 @@ import { createJiti } from "jiti";
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
 const jiti = createJiti(import.meta.url);
 const draftStore = await jiti.import("../lib/draft-store.ts");
+const composer = await jiti.import("../lib/work-item-composer.ts");
 
 function callbackBody(name, nextName) {
   const start = source.indexOf(`const ${name} = useCallback`);
@@ -61,7 +62,7 @@ test("New restores the draft after session navigation and workspace auto-restore
     callbackBody("handleSelectSession", "handleNewSession"),
     callbackBody("handleNewSession", "hydrateSelectedSession"),
   ].join("\n");
-  const parkedKeyHelper = source.slice(source.indexOf("function parkedNewSessionDraftKey"), source.indexOf("export function AppShell"));
+  const parkedKeyHelper = "";
   const hookSource = await readFile(new URL("../hooks/useAgentSession.ts", import.meta.url), "utf8");
   const cleanupStart = hookSource.indexOf("    return () => {", hookSource.indexOf("  // Load session on mount"));
   const cleanupEnd = hookSource.indexOf("    // eslint-disable-next-line", cleanupStart);
@@ -73,11 +74,13 @@ test("New restores the draft after session navigation and workspace auto-restore
       const response = Promise.withResolvers();
       const context = vm.createContext({
         ...draftStore,
+        ...composer,
         crypto: globalThis.crypto,
         queueMicrotask,
         URLSearchParams,
         window: { location: { pathname: "/", search: "" } },
         router: { replace() {} },
+        applyViewToLocation() {},
         fetch: () => response.promise,
         getLastOpenSession: (key) => key === cwd ? session.id : null,
         clearLastOpen() {},
@@ -95,6 +98,7 @@ test("New restores the draft after session navigation and workspace auto-restore
         closeEvents() {},
         isMobile: false,
         activeCwd: cwd,
+        activeViewRef: { current: "chat" },
         activeFileTabId: null,
         newSessionCwd: cwd,
         newSessionDraftId: "initial",

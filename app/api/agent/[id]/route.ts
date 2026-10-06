@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { resolveSessionPath } from "@/lib/session-reader";
 import { startRpcSession, getRpcSession, setRpcSessionTools } from "@/lib/rpc-manager";
+import { isWorkItemAssociationPending } from "@/lib/work-item-lifecycle";
 
 // POST /api/agent/[id] - Send a command to an existing session
 export async function POST(
@@ -60,6 +61,7 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
+    if (isWorkItemAssociationPending(error)) return NextResponse.json({ error: error.message, code: error.code, sessionId: error.sessionId, workItemId: error.workItemId, cause: error.causeCode }, { status: error.status });
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted

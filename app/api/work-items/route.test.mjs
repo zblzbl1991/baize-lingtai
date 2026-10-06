@@ -3,7 +3,7 @@
 // data, so the routes must surface its typed failures instead of papering over
 // them. The store's own semantics live in lib/work-items.test.mjs.
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
@@ -20,6 +20,8 @@ const jiti = createJiti(import.meta.url, {
 });
 const { GET, POST } = await jiti.import("./route.ts");
 const { PATCH, DELETE } = await jiti.import("./[id]/route.ts");
+const { POST: ATTACH } = await jiti.import("./[id]/sessions/route.ts");
+const { DELETE: DETACH } = await jiti.import("./[id]/sessions/[sessionId]/route.ts");
 const { createWorkItem, getWorkItemsStorePath, resolveWorkItemProject } = await jiti.import("@/lib/work-items");
 const storePath = getWorkItemsStorePath();
 
@@ -75,6 +77,32 @@ test("POST derives canonical Project identity from the given projectRoot", async
   assert.equal(onDisk.version, 1);
   assert.equal(onDisk.workItems.length, 2);
   await rm(projectRoot, { recursive: true, force: true });
+});
+
+test("routes validate native source Projects and conflict-safe save-as/move/detach", async () => {
+  const projectRoot = await mkdtemp(join(tmpdir(), "work-item-association-project-"));
+  const source = "10000000-0000-4000-8000-000000000021";
+  const dir = join(testAgentDir, "sessions", "association-fixture"); await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `2026-01-01_${source}.jsonl`), [
+    { type: "session", version: 3, id: source, timestamp: "2026-01-01T00:00:00Z", cwd: projectRoot },
+    { type: "message", id: "u", parentId: null, message: { role: "user", content: "A real source" } },
+  ].map(JSON.stringify).join("\n") + "\n");
+  const saved = await POST(post({ projectRoot, name: "Saved", sessionIds: [source] }));
+  assert.equal(saved.status, 201);
+  const a = (await saved.json()).workItem;
+  const created = await POST(post({ projectRoot, name: "Moved" }));
+  const b = (await created.json()).workItem;
+  const intent = (expectedWorkItemId) => jsonRequest(`http://localhost/api/work-items/${b.id}/sessions`, "POST", { sessionId: source, expectedWorkItemId });
+  const conflict = await ATTACH(intent(null), itemRoute(b.id));
+  assert.equal(conflict.status, 409); assert.equal((await conflict.json()).currentWorkItemId, a.id);
+  assert.equal((await ATTACH(intent(a.id), itemRoute(b.id))).status, 200);
+  assert.equal((await ATTACH(intent(a.id), itemRoute(b.id))).status, 200); // repeat target is harmless
+  const other = (await (await POST(post({ projectRoot: "/different-project", name: "Other" }))).json()).workItem;
+  const cross = await ATTACH(intent(b.id), itemRoute(other.id));
+  assert.equal(cross.status, 400);
+  const detached = await DETACH(new Request("http://localhost/api/work-items/detach", { method: "DELETE", headers: { Host: "localhost" } }), { params: Promise.resolve({ id: b.id, sessionId: source }) });
+  assert.equal(detached.status, 200);
+  assert.ok((await readFile(join(dir, `2026-01-01_${source}.jsonl`), "utf8")).includes("A real source"));
 });
 
 test("POST rejects invalid input with structured codes", async () => {

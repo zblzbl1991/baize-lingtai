@@ -696,6 +696,20 @@ export class AgentSessionWrapper {
   }
 
   async send(command: Record<string, unknown>): Promise<unknown> {
+    if (["fork", "fork_branch", "clone"].includes(command.type as string)) {
+      const { forkWithWorkItemAssociation } = await import("./work-item-lifecycle");
+      const { resolveWorkItemProject } = await import("./work-items");
+      const project = await resolveWorkItemProject(this.cwd);
+      return forkWithWorkItemAssociation(this.sessionId, project.projectKey, () => this.sendNative(command) as Promise<{ newSessionId?: string }>, undefined, project.checkoutRoot);
+    }
+    return this.sendNative(command);
+  }
+
+  private async sendNative(command: Record<string, unknown>): Promise<unknown> {
+    if (["prompt", "steer", "follow_up"].includes(command.type as string)) {
+      const { assertWorkItemSessionReady } = await import("./work-item-lifecycle");
+      assertWorkItemSessionReady(this.sessionId);
+    }
     const type = command.type as string;
     const allowedDuringReplacement = COMMANDS_ALLOWED_DURING_SESSION_REPLACEMENT.has(type);
     if (this.sessionReplacement && !allowedDuringReplacement) {

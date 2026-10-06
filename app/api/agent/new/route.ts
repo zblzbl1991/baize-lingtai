@@ -5,6 +5,8 @@ import { randomUUID } from "crypto";
 import { allowFileRoot } from "@/lib/file-access";
 import { invalidateSessionListCache } from "@/lib/session-reader";
 import { startRpcSession } from "@/lib/rpc-manager";
+import { isWorkItemId, resolveWorkItemProject, isWorkItemRequestError } from "@/lib/work-items";
+import { validateNewWorkItemSession, settleNewWorkItemSession, isWorkItemAssociationPending } from "@/lib/work-item-lifecycle";
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
@@ -24,7 +26,7 @@ export async function POST(req: Request) {
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd, ...command } = body;
+    const { cwd, workItemId, ...command } = body;
     commandType = typeof command.type === "string" ? command.type : undefined;
 
     if (!cwd || typeof cwd !== "string") {
@@ -43,6 +45,10 @@ export async function POST(req: Request) {
           : {}),
       }, { status: 400 });
     }
+
+    if (workItemId !== undefined && !isWorkItemId(workItemId)) return NextResponse.json({ error: "Invalid workItemId", code: "invalid-request" }, { status: 400 });
+    const project = workItemId ? await resolveWorkItemProject(cwd) : null;
+    if (workItemId && project) await validateNewWorkItemSession(workItemId, project.projectKey);
 
     // Use a one-time key so startRpcSession's lock doesn't conflict with real session ids
     const { provider, modelId, toolNames, thinkingLevel, ...promptCommand } = command as { provider?: string; modelId?: string; toolNames?: string[]; thinkingLevel?: unknown; [key: string]: unknown };
@@ -66,6 +72,8 @@ export async function POST(req: Request) {
     // a file request under a brand-new cwd would 403 for up to the cache TTL.
     allowFileRoot(cwd);
     invalidateSessionListCache();
+
+    if (workItemId && project) await settleNewWorkItemSession(workItemId, realSessionId, project.projectKey, undefined, project.checkoutRoot);
 
     const state = await session.send({ type: "get_state" }) as {
       model?: { id: string; provider: string };
@@ -97,6 +105,8 @@ export async function POST(req: Request) {
       thinkingLevel: state.thinkingLevel,
     });
   } catch (error) {
+    if (isWorkItemAssociationPending(error)) return NextResponse.json({ error: error.message, code: error.code, sessionId: error.sessionId, workItemId: error.workItemId, cause: error.causeCode, accepted: false }, { status: error.status });
+    if (isWorkItemRequestError(error)) return NextResponse.json({ error: error.message, code: error.code, accepted: false }, { status: error.status });
     return NextResponse.json({
       error: error instanceof Error ? error.message : String(error),
       ...(commandType === "prompt" && !promptAccepted

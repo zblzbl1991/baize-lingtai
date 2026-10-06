@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isWorkItemRequestError } from "./work-items";
 
 // Shared response shapes for the Work Items routes. Next.js validates route
 // exports, so the helpers live here, not in route.ts. Every failure carries a
@@ -7,6 +8,7 @@ import { NextResponse } from "next/server";
 
 /** A store the server cannot read or write: fail closed, never claim success. */
 export function storeErrorResponse(error: unknown) {
+  if (isWorkItemRequestError(error)) return NextResponse.json({ error: error.message, code: error.code, currentWorkItemId: error.currentWorkItemId }, { status: error.status });
   return NextResponse.json(
     { error: error instanceof Error ? error.message : String(error), code: "store-error" },
     { status: 500 },

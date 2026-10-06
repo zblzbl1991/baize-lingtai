@@ -28,6 +28,7 @@ import { autoTitle } from "./replies";
 import { demoOnlyMessage } from "./unavailable";
 import { settingsRoutes } from "./settings-routes";
 import { attachTerminalStream, terminalRoutes } from "./terminal";
+import { workItemsRoute, associateDemoSession, demoSessionOwner } from "./work-items";
 
 type Handler = (request: MockRequest) => Promise<Response> | Response;
 
@@ -108,7 +109,12 @@ async function sessionsRoute(request: MockRequest): Promise<Response> {
 async function agentRoute(request: MockRequest): Promise<Response> {
   const [, , id, sub] = request.segments;
   if (id === "running") return json({ sessionListVersion: sessionListVersion(), runningSessionIds: runningSessionIds(), completionNotificationSuppressedSessionIds: [] });
-  if (id === "new") return json(createRuntimeSession(await request.json()));
+  if (id === "new") {
+    const body = await request.json<Record<string, unknown>>();
+    const result = createRuntimeSession(body);
+    associateDemoSession(body.workItemId as string | undefined, result.sessionId);
+    return json(result);
+  }
   const session = getSession(id);
   if (sub === "lease") return json({ success: true, renewed: session ? 1 : 0 });
   if (sub === "bash-output") return error(demoOnlyMessage(), 404);
@@ -122,6 +128,7 @@ async function agentRoute(request: MockRequest): Promise<Response> {
   }
   const result = await runAgentCommand(session, command);
   if (!result.ok) return error(result.error, result.status, result.extra);
+  if (["fork", "fork_branch", "clone"].includes(command.type as string) && result.data && typeof result.data === "object" && "newSessionId" in result.data) associateDemoSession(demoSessionOwner(id), result.data.newSessionId as string);
   if (command.type === "set_tools") return json({ success: true, data: result.data });
   return json({ success: true, data: result.data });
 }
@@ -223,6 +230,7 @@ async function cwdRoute(request: MockRequest): Promise<Response> {
 }
 
 const ROUTES: Record<string, Handler> = {
+  "work-items": workItemsRoute,
   sessions: sessionsRoute,
   agent: agentRoute,
   files: filesRoute,

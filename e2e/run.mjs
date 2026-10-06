@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,6 +12,7 @@ import { chromium } from "playwright";
 import { checkFilePanel, filePanelFixture } from "./file-panel.mjs";
 import { checkExtensionDialogs, extensionSource } from "./extension-dialog.mjs";
 import { checkChatAppearance } from "./chat-appearance.mjs";
+import { checkWorkbench, seedWorkbench, WORKBENCH_SESSION, WORKTREE_SESSION, OTHER_PROJECT_SESSION } from "./workbench.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const mode = process.env.E2E_SERVER_MODE || "dev";
@@ -19,7 +20,7 @@ assert.ok(mode === "dev" || mode === "start", "E2E_SERVER_MODE must be dev or st
 assert.ok(mode !== "dev" || !existsSync(join(root, ".next/dev/lock")), "Use a checkout without an active dev server");
 const artifacts = join(root, "test-results/e2e");
 mkdirSync(artifacts, { recursive: true });
-const agentDir = mkdtempSync(join(tmpdir(), "pi-web-e2e-"));
+const agentDir = realpathSync.native(mkdtempSync(join(tmpdir(), "pi-web-e2e-")));
 const project = join(agentDir, "project");
 const sessionDir = join(agentDir, "sessions", "e2e");
 mkdirSync(project);
@@ -126,6 +127,7 @@ try {
     message("reply", "root", "assistant", "E2E wrapper reply"),
   ]);
 
+  const workbenchFixture = seedWorkbench(agentDir, project, sessionDir);
   const probe = createServer();
   probe.listen(0, "127.0.0.1");
   await once(probe, "listening");
@@ -166,7 +168,7 @@ try {
     const response = await fetch(`${base}/api/sessions`, { signal: AbortSignal.timeout(5000) }).catch(() => null);
     if (response?.ok) {
       const { sessions } = await response.json();
-      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND].sort());
+      assert.deepEqual(sessions.map((session) => session.id).sort(), [LONG, BRANCH, RICH, COMPACTED, APPEND, WORKBENCH_SESSION, WORKTREE_SESSION, OTHER_PROJECT_SESSION].sort());
       break;
     }
     assert.ok(Date.now() < deadline, "Server readiness timed out; see server.log");
@@ -218,7 +220,7 @@ try {
     console.log("PASS: external session-file appends are visible on force/mount reads");
   }
 
-  browser = await chromium.launch();
+  browser = await chromium.launch({ channel: process.env.E2E_BROWSER_CHANNEL || undefined });
   for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
     context = await browser.newContext({ viewport, locale: "en-US" });
     await context.tracing.start({ screenshots: true, snapshots: true });
@@ -405,6 +407,8 @@ try {
       await page.locator(".markdown-code-block pre").waitFor();
       await checkChatAppearance(page);
     }
+    await page.setViewportSize(viewport);
+    await checkWorkbench(page, base, workbenchFixture);
     assert.deepEqual(errors, [], `Browser errors at width ${viewport.width}`);
     console.log(`PASS: ${viewport.width}px browser pagination, branch, markdown, code, tool call, and compaction navigation`);
     await context.tracing.stop();

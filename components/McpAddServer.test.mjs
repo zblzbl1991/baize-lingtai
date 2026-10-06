@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readSourceFile } from "node:fs/promises";
+const readFile = async (...args) => (await readSourceFile(...args)).replace(/\r\n/g, "\n");
 import test from "node:test";
 import { createJiti } from "jiti";
 
@@ -9,7 +10,7 @@ const jiti = createJiti(import.meta.url, {
 });
 const React = await jiti.import("react");
 const { renderToStaticMarkup } = await jiti.import("react-dom/server");
-const { I18nProvider } = await jiti.import("@/hooks/useI18n.tsx");
+const { I18nProvider } = await jiti.import("@/hooks/useI18n");
 const { MCP_ADD_REFUSAL_KEYS, McpAddServer } = await jiti.import("./McpAddServer.tsx");
 const { getLocalePlugin, getSupportedLocales } = await jiti.import("@/lib/i18n/registry.ts");
 const locales = Object.fromEntries(getSupportedLocales().map((id) => [id, getLocalePlugin(id).messages]));

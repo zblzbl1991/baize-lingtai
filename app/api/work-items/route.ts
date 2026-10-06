@@ -11,9 +11,10 @@ import {
   WORK_ITEM_NAME_MAX_LENGTH,
   createWorkItem,
   getWorkItemsStorePath,
-  readWorkItems,
   resolveWorkItemProject,
+  isSessionId,
 } from "@/lib/work-items";
+import { resolveWorkItemSession, workItemsView } from "@/lib/work-item-sessions";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const workItems = await readWorkItems(getWorkItemsStorePath());
+    const workItems = await workItemsView();
     return NextResponse.json({ workItems });
   } catch (error) {
     return storeErrorResponse(error);
@@ -48,7 +49,8 @@ export async function POST(req: Request) {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return invalidRequest("Expected a JSON object");
   }
-  const { projectRoot, name } = body as { projectRoot?: unknown; name?: unknown };
+  const { projectRoot, name, sessionIds } = body as { projectRoot?: unknown; name?: unknown; sessionIds?: unknown };
+  if (sessionIds !== undefined && (!Array.isArray(sessionIds) || sessionIds.length > 500 || sessionIds.some((id) => !isSessionId(id)))) return invalidRequest("Invalid sessionIds");
 
   if (typeof projectRoot !== "string" || !projectRoot.trim() || !isAbsolute(projectRoot)) {
     return invalidRequest("projectRoot must be an absolute path");
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
     // worktrees collapse into their main checkout, Windows paths compare
     // case-insensitively through the identity key.
     const identity = await resolveWorkItemProject(projectRoot);
-    const workItem = await createWorkItem(getWorkItemsStorePath(), { ...identity, name });
+    const workItem = await createWorkItem(getWorkItemsStorePath(), { ...identity, name, sessionIds: sessionIds as string[] | undefined }, { resolveSession: resolveWorkItemSession });
     return NextResponse.json({ workItem }, { status: 201 });
   } catch (error) {
     return storeErrorResponse(error);

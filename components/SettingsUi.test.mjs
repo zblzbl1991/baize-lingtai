@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readSourceFile } from "node:fs/promises";
+const readFile = async (...args) => (await readSourceFile(...args)).replace(/\r\n/g, "\n");
 import test from "node:test";
 
 const templateSource = await readFile(new URL("./SettingsUi.tsx", import.meta.url), "utf8");

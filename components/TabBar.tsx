@@ -12,6 +12,7 @@ export interface Tab {
   kind?: "terminal";
   closing?: boolean;
   sourceSessionId?: string | null;
+  cwd?: string;
   initialDisplayMode?: FileViewerDisplayMode;
   /** PDF page requested by the link that opened this tab (`#page=N`). */
   page?: number;
