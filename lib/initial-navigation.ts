@@ -1,9 +1,13 @@
 import type { TabOpen } from "./tab-session";
 
+export type AppView = "chat" | "workbench";
+
 export interface InitialNavigation {
   requestedCwd: string | null;
   sessionId: string | null;
   sidebarCollapsed: boolean;
+  /** The Workbench (工作台) is a separate cross-Project view; ?view=workbench opens into it. */
+  view: AppView;
 }
 
 export function getInitialNavigation(
@@ -15,6 +19,7 @@ export function getInitialNavigation(
     requestedCwd,
     sessionId: requestedCwd ? null : (searchParams.get("session") || null),
     sidebarCollapsed: searchParams.get("sidebar") === "collapsed",
+    view: searchParams.get("view") === "workbench" ? "workbench" : "chat",
   };
 }
 

@@ -101,7 +101,12 @@ test("New restores the draft after session navigation and workspace auto-restore
         selectedSession: null,
         sessionCatalog: [],
         sessionKey: 0,
+        // The Workbench toggle lives outside these callbacks; explicit
+        // selections only need the transition itself, not the URL write.
+        activeViewRef: { current: "chat" },
       });
+      context.returnToChat = () => { context.activeViewRef.current = "chat"; };
+      context.hrefPreservingView = (query) => query;
       context.invalidateWorkspaceRestore = () => context.workspaceRestoreTokenRef.current++;
       for (const [setter] of callbacks.matchAll(/\bset[A-Z]\w*(?=\()/g)) {
         const state = setter[3].toLowerCase() + setter.slice(4);
