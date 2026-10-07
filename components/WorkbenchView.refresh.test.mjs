@@ -14,6 +14,7 @@ function mount(file, fetch, window = {}) {
   const memoize = (fn, deps) => { const index = cursor++, previous = hooks[index]; if (!previous || deps.some((value, i) => value !== previous.deps[i])) hooks[index] = { deps, value: fn() }; return hooks[index].value; };
   const React = {
     useState(initial) { const index = cursor++; hooks[index] ??= { value: typeof initial === "function" ? initial() : initial }; return [hooks[index].value, (value) => { hooks[index].value = typeof value === "function" ? value(hooks[index].value) : value; }]; },
+    useRef(initial) { const index = cursor++; hooks[index] ??= { value: { current: initial } }; return hooks[index].value; },
     useMemo: memoize,
     useCallback(fn, deps) { return memoize(() => fn, deps); },
     useEffect(fn, deps) {
@@ -28,7 +29,13 @@ function mount(file, fetch, window = {}) {
     setInterval(fn) { timers.set(++timerId, fn); return timerId; }, clearInterval(id) { timers.delete(id); },
     require(name) {
       if (name === "react") return React;
-      if (name === "react/jsx-runtime") return { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) };
+      if (name === "react/jsx-runtime") { const element = (type, props) => typeof type === "function" ? type(props) : ({ type, props }); return { jsx: element, jsxs: element }; }
+      if (name === "./SettingsUi") {
+        const shared = {};
+        const source = readFileSync(new URL("./SettingsUi.tsx", import.meta.url), "utf8");
+        const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
+        vm.runInNewContext(code, { ...context, exports: shared }); return shared;
+      }
       if (name.includes("useI18n")) return { useI18n: () => ({ t, locale: "en" }) };
       if (name.includes("workspace-memory")) return { workspaceKeyOf: (session) => session.projectKey ?? session.cwd };
       if (name.includes("project-groups")) return { getRecentProjects: () => [] };
@@ -103,17 +110,50 @@ test("a stale move requires a fresh confirmation naming the refreshed owner", as
   controls.unmount();
 });
 
-test("save-as uses the current session title and explicitly associates that session", async () => {
+test("inline save-as prefills the title and only writes when the form is submitted", async () => {
   const session = { id: "session", cwd: "/repo", name: "Existing title" };
-  const prompts = [], writes = [];
+  const writes = [];
   const controls = mount("./SessionWorkItemControls.tsx", async (url, init) => {
     if (init?.method === "POST") { writes.push(JSON.parse(init.body)); return { ok: true, json: async () => ({}) }; }
     return { ok: true, json: async () => ({ workItems: [] }) };
-  }, { prompt(message, initial) { prompts.push(initial); return initial; } });
+  }, { prompt() { throw new Error("Save-as must use the page's form"); } });
   controls.render({ session }); await settle();
   button(controls.render({ session }), "workbench.saveAs").props.onClick(); await settle();
-  assert.deepEqual(prompts, [session.name]); assert.equal(writes[0].name, session.name);
-  assert.deepEqual(writes[0].sessionIds, [session.id]); controls.unmount();
+  let tree = controls.render({ session });
+  const input = elements(tree, (element) => element.type === "input")[0];
+  assert.equal(input.props.value, session.name); assert.equal(writes.length, 0);
+  input.props.onChange({ target: { value: "Edited goal" } }); tree = controls.render({ session });
+  await elements(tree, (element) => element.type === "form")[0].props.onSubmit({ preventDefault() {} }); await settle();
+  assert.equal(writes[0].name, "Edited goal");
+  assert.deepEqual(writes[0].sessionIds, [session.id]);
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "form").length, 0);
+  controls.unmount();
+});
+
+test("inline save-as cancellation writes nothing and a failed save retains the entered name", async () => {
+  const session = { id: "session", cwd: "/repo", name: "Title" }, writes = [];
+  const controls = mount("./SessionWorkItemControls.tsx", async (url, init) => {
+    if (init?.method === "POST") { writes.push(JSON.parse(init.body)); return { ok: false, json: async () => ({ code: "store-error" }) }; }
+    return { ok: true, json: async () => ({ workItems: [] }) };
+  });
+  controls.render({ session }); await settle();
+  button(controls.render({ session }), "workbench.saveAs").props.onClick();
+  const escape = { key: "Escape", nativeEvent: { isComposing: true }, preventDefault() {}, stopPropagation() {} };
+  elements(controls.render({ session }), (element) => element.type === "form")[0].props.onKeyDown(escape);
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "form").length, 1, "composition must not dismiss the form");
+  let stopped = false;
+  elements(controls.render({ session }), (element) => element.type === "form")[0].props.onKeyDown({ ...escape, nativeEvent: { isComposing: false }, stopPropagation() { stopped = true; } });
+  assert.equal(stopped, true, "Escape must not reach the agent's global stop handler");
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "form").length, 0);
+  button(controls.render({ session }), "workbench.saveAs").props.onClick();
+  button(controls.render({ session }), "workbench.cancel").props.onClick();
+  assert.equal(writes.length, 0); assert.equal(elements(controls.render({ session }), (element) => element.type === "form").length, 0);
+  button(controls.render({ session }), "workbench.saveAs").props.onClick();
+  elements(controls.render({ session }), (element) => element.type === "input")[0].props.onChange({ target: { value: "Keep this name" } });
+  await elements(controls.render({ session }), (element) => element.type === "form")[0].props.onSubmit({ preventDefault() {} }); await settle();
+  const tree = controls.render({ session });
+  assert.equal(elements(tree, (element) => element.type === "input")[0].props.value, "Keep this name");
+  assert.equal(elements(tree, (element) => element.props?.role === "alert")[0].props.children, "workbench.error.save"); controls.unmount();
 });
 
 test("detail exposes unavailable members and empty partial Outputs, and disables missing files", async () => {

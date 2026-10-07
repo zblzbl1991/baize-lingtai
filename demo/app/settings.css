@@ -1405,3 +1405,56 @@
     }
   }
 }
+
+/* Shared segmented control used by the Workbench filters. */
+.config-scope-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  height: 30px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.config-scope-switch-option {
+  width: 76px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.config-scope-switch-option:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.config-scope-switch-option[aria-pressed="true"] {
+  background: var(--bg-selected);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.config-scope-switch-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.config-scope-switch.is-small {
+  display: flex;
+  height: auto;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.config-scope-switch.is-small .config-scope-switch-option {
+  width: auto;
+  padding: 3px 10px;
+  color: var(--text-dim);
+  font-size: inherit;
+}
+
+.config-scope-switch.is-small .config-scope-switch-option[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+}

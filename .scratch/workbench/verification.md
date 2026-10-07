@@ -22,3 +22,12 @@ Verified: 2026-10-07. Scope: spec and tickets 01–05; implementation on the cur
 The full suite initially exposed Windows test-fixture issues (8.3 paths, distinct Jiti module instances, CRLF assertions, native teardown/startup). The runner and tests were repaired without weakening functional assertions. One earlier E2E run hit the existing reading-offset timing assertion during concurrent checks; the subsequent standalone full runner passed without a product change to scrolling.
 
 Authoritative logs from this checkout: test-results/workbench-final-full-tests.log, workbench-final-lint.log and workbench-final-e2e.log. These generated files are ignored; the durable evidence mapping above is committed.
+
+## Style alignment — 2026-10-07
+
+- Workbench buttons now use the native `ConfigButton` variants and sizes, including `--accent-contrast`; fields and filters share the native field/segmented-control styling. Demo mirrors the app, with the required shared filter CSS and button ref typing added to its older SettingsUi implementation.
+- Save-as now uses an inline form: title prefill, explicit submit/cancel, IME-aware Escape, restored trigger focus on cancellation, and input retained after a failed write. Component tests verify no write on open/cancel, atomic initial Association payload, form closure on success and visible failure recovery.
+- `npm test`: 2351 tests, 2334 passed, zero failures, 17 existing skips. Root/demo typechecks and lint passed. The six component tests passed again after the Escape assertions were added.
+- Full Edge E2E passed at 1280px and 390px, including two-worktree Outputs/diffs, completion/reopen, native initialization and preserved drafts/sessions.
+- Local demo browser verification: desktop light/dark controls use 11–12px text and the native 5px radius. Dark primary foreground/background resolve to `#182234` / `#a4c2f4`. At 390px the page has no horizontal overflow; all Workbench buttons, including wrapping paths, are at least 44px high. Inline save-as uses a 44px / 16px input on mobile and successfully creates and associates an in-memory demo goal. Escape restores focus to the save-as trigger.
+- Logs: `test-results/workbench-style-suite.log`, `workbench-style-components.log`, `workbench-style-e2e.log`; screenshot: `test-results/workbench-style-dark.jpg` (generated/ignored).

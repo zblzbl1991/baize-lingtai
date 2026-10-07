@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { WorkItemDto } from "./workbench-view-helpers";
 import type { WorkItemOutputsResponse, WorkItemOutput } from "@/lib/work-item-output-types";
+import { ConfigButton } from "./SettingsUi";
 
 export interface WorkbenchActions {
   onOpenSession?: (id: string) => void;
@@ -29,20 +30,20 @@ export function WorkItemDetail({ item, onOpenSession, onNewSession, onOpenOutput
   const available = item.sessions?.filter((session) => !("unavailable" in session)) ?? [];
   return <div className="workbench-detail">
     <div className="workbench-actions">
-      {available[0] && <button onClick={() => onOpenSession?.(available[0].id)}>{t("workbench.resume")}</button>}
-      <button onClick={() => onNewSession?.(item)}>{t("workbench.newSession")}</button>
-      <button onClick={() => { void refresh(); setRevision((n) => n + 1); }}>{t("workbench.refresh")}</button>
+      {available[0] && <ConfigButton onClick={() => onOpenSession?.(available[0].id)}>{t("workbench.resume")}</ConfigButton>}
+      <ConfigButton onClick={() => onNewSession?.(item)}>{t("workbench.newSession")}</ConfigButton>
+      <ConfigButton variant="ghost" onClick={() => { void refresh(); setRevision((n) => n + 1); }}>{t("workbench.refresh")}</ConfigButton>
     </div>
     <h3>{t("workbench.sessions")}</h3>
     {!item.sessions?.length && <p>{t("workbench.noSessions")}</p>}
     {item.sessions?.map((session) => <div key={session.id} className="workbench-session-row">
-      {"unavailable" in session ? <span>{session.id} · {t("workbench.unavailable")}</span> : <button onClick={() => onOpenSession?.(session.id)}>
+      {"unavailable" in session ? <span>{session.id} · {t("workbench.unavailable")}</span> : <ConfigButton variant="ghost" className="workbench-path-button" onClick={() => onOpenSession?.(session.id)}>
         {session.isRunning && <span aria-label={t("workbench.running")}>● </span>}{session.name || session.firstMessage || session.id}
-      </button>}
-      <button aria-label={t("workbench.detach")} onClick={async () => {
+      </ConfigButton>}
+      <ConfigButton variant="ghost" aria-label={t("workbench.detach")} onClick={async () => {
         const response = await fetch(`/api/work-items/${item.id}/sessions/${session.id}`, { method: "DELETE" });
         if (response.ok) await refresh(); else setError(true);
-      }}>{t("workbench.detach")}</button>
+      }}>{t("workbench.detach")}</ConfigButton>
     </div>)}
     <h3>{t("workbench.outputs")}</h3>
     <p className="workbench-note">{t("workbench.outputCoverage")}</p>
@@ -51,9 +52,9 @@ export function WorkItemDetail({ item, onOpenSession, onNewSession, onOpenOutput
     {outputs?.incomplete && <p role="status">{t("workbench.partialOutputs")} {outputs.reasons.map((reason) => t(`workbench.reason.${reason}`)).join(" · ")}</p>}
     {outputs && !outputs.outputs.length && <p>{t("workbench.noOutputs")}</p>}
     {outputs?.outputs.map((file) => <div key={file.filePath} className="workbench-output-row">
-      <button disabled={file.state === "missing" || file.state === "unavailable"} onClick={() => onOpenOutput?.(file, false)}>{file.filePath}</button>
+      <ConfigButton variant="ghost" className="workbench-path-button workbench-file-path" disabled={file.state === "missing" || file.state === "unavailable"} onClick={() => onOpenOutput?.(file, false)}>{file.filePath}</ConfigButton>
       <span>{t(`workbench.fileState.${file.state}`)}</span>
-      {file.diffAvailable && <button onClick={() => onOpenOutput?.(file, true)}>{t("workbench.currentDiff")}</button>}
+      {file.diffAvailable && <ConfigButton variant="ghost" onClick={() => onOpenOutput?.(file, true)}>{t("workbench.currentDiff")}</ConfigButton>}
       {file.state === "changed" && !file.diffAvailable && <span>{t("workbench.diffUnavailable")}</span>}
     </div>)}
   </div>;

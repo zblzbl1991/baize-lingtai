@@ -5,6 +5,7 @@ import { useI18n } from "@/hooks/useI18n";
 import { getRecentProjects } from "@/lib/project-groups";
 import type { SessionInfo } from "@/lib/types";
 import { WorkItemDetail, type WorkbenchActions } from "./WorkItemDetail";
+import { ConfigButton } from "./SettingsUi";
 import {
   filterWorkItems,
   groupWorkItemsByProject,
@@ -156,40 +157,32 @@ export default function WorkbenchView(actions: WorkbenchActions) {
   const groups = groupWorkItemsByProject(visible);
 
   return (
-    <div className="workbench-view" style={{ height: "100%", overflowY: "auto", padding: "20px 24px", background: "var(--bg)" }}>
+    <div className="workbench-view" style={{ height: "100%", overflowY: "auto", background: "var(--bg)" }}>
       <div style={{ maxWidth: 860, margin: "0 auto", display: "flex", flexDirection: "column", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <h1 style={{ fontSize: 18, fontWeight: 600, color: "var(--text)", margin: 0, flexShrink: 0 }}>
             {t("workbench.title")}
           </h1>
-          <div role="group" aria-label={t("workbench.title")} style={{ display: "flex", gap: 2, background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 6, padding: 2 }}>
+          <div className="config-scope-switch is-small" role="group" aria-label={t("workbench.title")}>
             {FILTERS.map((value) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setFilter(value)}
                 aria-pressed={filter === value}
-                style={{
-                  padding: "3px 10px", fontSize: 12, borderRadius: 4, border: "none", cursor: "pointer",
-                  background: filter === value ? "var(--bg-selected)" : "none",
-                  color: filter === value ? "var(--text)" : "var(--text-muted)",
-                }}
+                className="config-scope-switch-option"
               >
                 {t(FILTER_LABEL_KEY[value])}
               </button>
             ))}
           </div>
           <div style={{ flex: 1 }} />
-          <button
-            type="button"
+          <ConfigButton
+            variant="primary"
             onClick={() => { void openCreate(); }}
-            style={{
-              padding: "6px 14px", fontSize: 13, borderRadius: 6, cursor: "pointer",
-              background: "var(--accent)", color: "#fff", border: "none", flexShrink: 0,
-            }}
           >
             {t("workbench.create")}
-          </button>
+          </ConfigButton>
         </div>
 
         {actionError && (
@@ -203,22 +196,19 @@ export default function WorkbenchView(actions: WorkbenchActions) {
             onSubmit={(event) => { event.preventDefault(); void createItem(); }}
             style={{ display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "var(--bg-panel)", border: "1px solid var(--border)", borderRadius: 8 }}
           >
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--text-muted)" }}>
-              {t("workbench.createName")}
+            <label className="config-field">
+              <span className="config-field-label">{t("workbench.createName")}</span>
               <input
                 value={createName}
                 onChange={(event) => setCreateName(event.target.value)}
                 placeholder={t("workbench.createNamePlaceholder")}
                 maxLength={200}
                 autoFocus
-                style={{
-                  padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--border)",
-                  background: "var(--bg)", color: "var(--text)", outline: "none",
-                }}
+                className="workbench-control"
               />
             </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--text-muted)" }}>
-              {t("workbench.createProject")}
+            <label className="config-field">
+              <span className="config-field-label">{t("workbench.createProject")}</span>
               {projects === null ? (
                 <span style={{ fontSize: 12, color: "var(--text-dim)" }}>{t("workbench.loading")}</span>
               ) : projects.length === 0 ? (
@@ -228,10 +218,7 @@ export default function WorkbenchView(actions: WorkbenchActions) {
                   aria-label={t("workbench.createProject")}
                   value={createProjectRoot ?? ""}
                   onChange={(event) => setCreateProjectRoot(event.target.value || null)}
-                  style={{
-                    padding: "7px 10px", fontSize: 13, borderRadius: 6, border: "1px solid var(--border)",
-                    background: "var(--bg)", color: "var(--text)",
-                  }}
+                  className="workbench-control"
                 >
                   {projects.map((project) => (
                     <option key={project.key} value={project.root}>{projectDisplayName(project.root)}</option>
@@ -240,20 +227,18 @@ export default function WorkbenchView(actions: WorkbenchActions) {
               )}
             </label>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button
-                type="button"
+              <ConfigButton
                 onClick={() => setCreateOpen(false)}
-                style={{ padding: "6px 14px", fontSize: 13, borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid var(--border)", color: "var(--text-muted)" }}
               >
                 {t("workbench.cancel")}
-              </button>
-              <button
+              </ConfigButton>
+              <ConfigButton
+                variant="primary"
                 type="submit"
                 disabled={!createProjectRoot || !createName.trim() || creating}
-                style={{ padding: "6px 14px", fontSize: 13, borderRadius: 6, cursor: createProjectRoot && createName.trim() && !creating ? "pointer" : "not-allowed", background: "var(--accent)", color: "#fff", border: "none", opacity: !createProjectRoot || !createName.trim() || creating ? 0.5 : 1 }}
               >
                 {t("workbench.create")}
-              </button>
+              </ConfigButton>
             </div>
           </form>
         )}
@@ -261,13 +246,11 @@ export default function WorkbenchView(actions: WorkbenchActions) {
         {loadError ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: 48, color: "var(--text-muted)", fontSize: 13 }}>
             <div>{t("workbench.error.load")}</div>
-            <button
-              type="button"
+            <ConfigButton
               onClick={() => { void refresh(); }}
-              style={{ padding: "6px 14px", fontSize: 13, borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid var(--border)", color: "var(--text)" }}
             >
               {t("workbench.retry")}
-            </button>
+            </ConfigButton>
           </div>
         ) : workItems === null ? (
           <div style={{ padding: 48, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>{t("workbench.loading")}</div>
@@ -312,22 +295,18 @@ export default function WorkbenchView(actions: WorkbenchActions) {
                           onFocus={(event) => event.target.select()}
                           onBlur={() => { void submitRename(); }}
                           aria-label={t("workbench.rename")}
-                          style={{
-                            flex: 1, padding: "4px 8px", fontSize: 14, borderRadius: 4,
-                            border: "1px solid var(--accent)", background: "var(--bg)", color: "var(--text)", outline: "none",
-                          }}
+                          className="workbench-control"
+                          style={{ flex: 1, minWidth: 0 }}
                         />
-                        <button type="submit" style={{ padding: "4px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer", background: "var(--accent)", color: "#fff", border: "none" }}>
+                        <ConfigButton type="submit" variant="primary">
                           {t("workbench.save")}
-                        </button>
-                        <button
-                          type="button"
+                        </ConfigButton>
+                        <ConfigButton
                           onMouseDown={(event) => event.preventDefault()}
                           onClick={() => setRenamingId(null)}
-                          style={{ padding: "4px 10px", fontSize: 12, borderRadius: 4, cursor: "pointer", background: "none", border: "1px solid var(--border)", color: "var(--text-muted)" }}
                         >
                           {t("workbench.cancel")}
-                        </button>
+                        </ConfigButton>
                       </form>
                     ) : (
                       <button className="workbench-item-title" aria-expanded={expandedId === item.id} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)} style={{ fontSize: 14, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -349,40 +328,33 @@ export default function WorkbenchView(actions: WorkbenchActions) {
                   </span>
                   <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
                     {renamingId !== item.id && (
-                      <button
-                        type="button"
+                      <ConfigButton
+                        variant="ghost" size="small"
                         title={t("workbench.rename")}
                         aria-label={`${t("workbench.rename")}: ${item.name}`}
                         onClick={() => startRename(item)}
-                        style={{ display: "flex", alignItems: "center", padding: "5px 8px", borderRadius: 4, cursor: "pointer", background: "none", border: "none", color: "var(--text-muted)" }}
-                        onMouseEnter={(event) => { event.currentTarget.style.color = "var(--text)"; }}
-                        onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-muted)"; }}
                       >
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
                         </svg>
-                      </button>
+                      </ConfigButton>
                     )}
-                    <button
-                      type="button"
+                    <ConfigButton
+                      variant="ghost" size="small"
                       onClick={() => { void patchItem(item.id, { status: item.status === "completed" ? "in-progress" : "completed" }); }}
-                      style={{ padding: "5px 8px", fontSize: 12, borderRadius: 4, cursor: "pointer", background: "none", border: "none", color: "var(--text-muted)", whiteSpace: "nowrap" }}
                     >
                       {t(item.status === "completed" ? "workbench.reopen" : "workbench.complete")}
-                    </button>
-                    <button
-                      type="button"
+                    </ConfigButton>
+                    <ConfigButton
+                      variant="danger" size="small"
                       title={t("workbench.delete")}
                       aria-label={`${t("workbench.delete")}: ${item.name}`}
                       onClick={() => { void deleteItem(item); }}
-                      style={{ display: "flex", alignItems: "center", padding: "5px 8px", borderRadius: 4, cursor: "pointer", background: "none", border: "none", color: "var(--text-dim)" }}
-                      onMouseEnter={(event) => { event.currentTarget.style.color = "#dc2626"; }}
-                      onMouseLeave={(event) => { event.currentTarget.style.color = "var(--text-dim)"; }}
                     >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                         <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
                       </svg>
-                    </button>
+                    </ConfigButton>
                   </div>
                   {expandedId === item.id && <WorkItemDetail item={item} refresh={refresh} {...actions} />}
                 </article>
