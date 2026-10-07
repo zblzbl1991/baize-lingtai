@@ -1339,6 +1339,8 @@ export const zhTWLocale: LocalePlugin = {
     "workbench.unassociated": "未關聯會話",
     "workbench.saveAs": "儲存為新工作目標",
     "workbench.attach": "關聯",
+    "workbench.changeGoal": "更換目標",
+    "workbench.confirmChange": "確認更換",
     "workbench.chooseGoal": "選擇工作目標",
     "workbench.detach": "取消關聯",
     "workbench.moveConfirm": "將此會話從「{name}」移出並關聯到所選目標？",

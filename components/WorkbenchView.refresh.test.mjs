@@ -96,17 +96,76 @@ test("a stale move requires a fresh confirmation naming the refreshed owner", as
   }, { confirm(message) { confirmations.push(message); return consent; } });
   controls.render({ session }); await settle();
   let tree = controls.render({ session });
+  assert.equal(elements(tree, (element) => element.type === "select").length, 0);
+  assert.equal(button(tree, "workbench.attach"), undefined);
+  assert.ok(button(tree, "workbench.detach"));
+  button(tree, "workbench.changeGoal").props.onClick();
+  tree = controls.render({ session });
+  assert.equal(button(tree, "workbench.confirmChange").props.disabled, true);
+  assert.equal(elements(tree, (element) => element.type === "option" && element.props.value === "A").length, 0);
   elements(tree, (element) => element.type === "select")[0].props.onChange({ target: { value: "B" } });
   tree = controls.render({ session });
-  button(tree, "workbench.attach").props.onClick(); await settle();
+  button(tree, "workbench.confirmChange").props.onClick(); await settle();
   assert.equal(writes.length, 0, "declining the move leaves the store untouched");
-  consent = true; button(tree, "workbench.attach").props.onClick(); await settle();
+  consent = true; button(tree, "workbench.confirmChange").props.onClick(); await settle();
   assert.equal(writes[0].expectedWorkItemId, "A");
   tree = controls.render({ session });
   assert.equal(elements(tree, (element) => element.props?.role === "alert")[0].props.children, "workbench.conflict");
-  consent = false; button(tree, "workbench.attach").props.onClick();
+  consent = false; button(tree, "workbench.confirmChange").props.onClick();
   assert.match(confirmations.at(-1), /C/);
   assert.equal(writes.length, 1, "conflict recovery does not automatically retry a move");
+  controls.unmount();
+});
+
+test("changing a Work Item cancels without writes, collapses after success, and clears the choice on detach", async () => {
+  const session = { id: "session", cwd: "/repo", projectKey: "/repo" };
+  let owner = "A";
+  const writes = [];
+  const controls = mount("./SessionWorkItemControls.tsx", async (url, init) => {
+    if (init) {
+      writes.push({ url, ...init });
+      owner = init.method === "DELETE" ? null : "B";
+      return { ok: true, json: async () => ({}) };
+    }
+    return { ok: true, json: async () => ({ workItems: ["A", "B"].map((id) => ({ id, name: id, projectKey: "/repo", sessionIds: id === owner ? [session.id] : [] })) }) };
+  }, { confirm: () => true });
+  controls.render({ session }); await settle();
+  const open = () => {
+    button(controls.render({ session }), "workbench.changeGoal").props.onClick();
+    return controls.render({ session });
+  };
+  let tree = open();
+  elements(tree, (element) => element.type === "select")[0].props.onChange({ target: { value: "B" } });
+  button(controls.render({ session }), "workbench.cancel").props.onClick();
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "select").length, 0);
+  tree = open();
+  assert.equal(elements(tree, (element) => element.type === "select")[0].props.value, "");
+  let stopped = false;
+  const escape = { key: "Escape", nativeEvent: { isComposing: true }, preventDefault() {}, stopPropagation() { stopped = true; } };
+  tree.props.onKeyDown(escape);
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "select").length, 1);
+  tree.props.onKeyDown({ ...escape, nativeEvent: { isComposing: false } });
+  assert.equal(stopped, true);
+  assert.equal(elements(controls.render({ session }), (element) => element.type === "select").length, 0);
+  assert.equal(writes.length, 0);
+  tree = open();
+  elements(tree, (element) => element.type === "select")[0].props.onChange({ target: { value: "B" } });
+  await button(controls.render({ session }), "workbench.confirmChange").props.onClick();
+  tree = controls.render({ session });
+  assert.equal(writes.length, 1);
+  assert.equal(JSON.parse(writes[0].body).expectedWorkItemId, "A");
+  assert.equal(elements(tree, (element) => element.type === "select").length, 0);
+  assert.ok(elements(tree, (element) => element.type === "span" && element.props.children === "workbench.goal: B").length);
+  tree = open();
+  elements(tree, (element) => element.type === "select")[0].props.onChange({ target: { value: "A" } });
+  await button(controls.render({ session }), "workbench.detach").props.onClick();
+  tree = controls.render({ session });
+  assert.equal(writes.length, 2);
+  assert.equal(writes[1].method, "DELETE");
+  assert.equal(elements(tree, (element) => element.type === "select")[0].props.value, "");
+  assert.equal(button(tree, "workbench.attach").props.disabled, true);
+  assert.equal(button(tree, "workbench.changeGoal"), undefined);
+  assert.ok(button(tree, "workbench.saveAs"));
   controls.unmount();
 });
 

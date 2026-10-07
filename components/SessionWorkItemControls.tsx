@@ -13,8 +13,10 @@ export function SessionWorkItemControls({ session }: { session: SessionInfo }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [changeOpen, setChangeOpen] = useState(false);
   const [name, setName] = useState("");
   const saveTrigger = useRef<HTMLButtonElement>(null);
+  const changeTrigger = useRef<HTMLButtonElement>(null);
   const owner = items.find((item) => item.sessionIds.includes(session.id));
   const reload = useCallback(async () => {
     const response = await fetch("/api/work-items");
@@ -27,7 +29,12 @@ export function SessionWorkItemControls({ session }: { session: SessionInfo }) {
     window.addEventListener("work-item-associated", listener);
     return () => window.removeEventListener("work-item-associated", listener);
   }, [reload]);
-  useEffect(() => { setSaveOpen(false); setError(""); setTarget(""); }, [session.id]);
+  useEffect(() => { setSaveOpen(false); setChangeOpen(false); setError(""); setTarget(""); }, [session.id]);
+  function closeChange() {
+    setChangeOpen(false);
+    setTarget("");
+    changeTrigger.current?.focus();
+  }
   function closeSave() {
     setSaveOpen(false);
     saveTrigger.current?.focus();
@@ -44,22 +51,34 @@ export function SessionWorkItemControls({ session }: { session: SessionInfo }) {
     } catch (e) { setError(e instanceof Error ? e.message : t("workbench.error.save")); return false; }
     finally { await reload().catch((e) => setError(e.message)); setBusy(false); }
   }
-  return <div className="workbench-session-controls">
+  return <div className="workbench-session-controls" onKeyDown={(event) => {
+    if (!changeOpen || event.key !== "Escape" || event.nativeEvent.isComposing) return;
+    event.preventDefault(); event.stopPropagation();
+    if (!busy) closeChange();
+  }}>
     <span>{owner ? `${t("workbench.goal")}: ${owner.name}` : t("workbench.unassociated")}</span>
     {!owner && <ConfigButton ref={saveTrigger} disabled={busy} aria-expanded={saveOpen} onClick={() => {
       if (saveOpen) { closeSave(); return; }
       setName((session.name || session.firstMessage || t("workbench.untitled")).slice(0, 200));
       setError(""); setSaveOpen(true);
     }}>{t("workbench.saveAs")}</ConfigButton>}
-    <select className="workbench-control" disabled={busy || saveOpen} aria-label={t("workbench.attach")} value={target} onChange={(e) => setTarget(e.target.value)}>
-      <option value="">{t("workbench.chooseGoal")}</option>
-      {items.filter((item) => item.projectKey === workspaceKeyOf(session)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-    </select>
-    <ConfigButton disabled={busy || saveOpen || !target} onClick={() => {
-      if (owner && owner.id !== target && !window.confirm(t("workbench.moveConfirm", { name: owner.name }))) return;
-      void act(`/api/work-items/${target}/sessions`, "POST", { sessionId: session.id, expectedWorkItemId: owner?.id ?? null });
-    }}>{t("workbench.attach")}</ConfigButton>
-    {owner && <ConfigButton variant="ghost" disabled={busy} onClick={() => { void act(`/api/work-items/${owner.id}/sessions/${session.id}`, "DELETE"); }}>{t("workbench.detach")}</ConfigButton>}
+    {owner && <ConfigButton ref={changeTrigger} variant="ghost" disabled={busy} aria-expanded={changeOpen} onClick={() => {
+      if (changeOpen) { closeChange(); return; }
+      setTarget(""); setError(""); setChangeOpen(true);
+    }}>{t(changeOpen ? "workbench.cancel" : "workbench.changeGoal")}</ConfigButton>}
+    {(!owner || changeOpen) && <>
+      <select className="workbench-control" disabled={busy || saveOpen} autoFocus={!!owner} aria-label={t("workbench.chooseGoal")} value={target} onChange={(e) => setTarget(e.target.value)}>
+        <option value="">{t("workbench.chooseGoal")}</option>
+        {items.filter((item) => item.projectKey === workspaceKeyOf(session) && item.id !== owner?.id).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select>
+      <ConfigButton disabled={busy || saveOpen || !target || target === owner?.id} onClick={async () => {
+        if (owner && owner.id !== target && !window.confirm(t("workbench.moveConfirm", { name: owner.name }))) return;
+        if (await act(`/api/work-items/${target}/sessions`, "POST", { sessionId: session.id, expectedWorkItemId: owner?.id ?? null })) closeChange();
+      }}>{t(owner ? "workbench.confirmChange" : "workbench.attach")}</ConfigButton>
+    </>}
+    {owner && <ConfigButton variant="ghost" disabled={busy} onClick={async () => {
+      if (await act(`/api/work-items/${owner.id}/sessions/${session.id}`, "DELETE")) closeChange();
+    }}>{t("workbench.detach")}</ConfigButton>}
     {!owner && saveOpen && <form className="workbench-save-form" aria-label={t("workbench.saveAs")} aria-busy={busy}
       onKeyDown={(event) => {
         if (event.key !== "Escape" || event.nativeEvent.isComposing) return;

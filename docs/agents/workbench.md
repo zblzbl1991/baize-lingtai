@@ -13,6 +13,8 @@ Contract: `.scratch/workbench/spec.md` and tickets 01–05. Vocabulary: `CONTEXT
 
 ## Creation, fork and recovery
 
+- Associated chat controls show the current Work Item, Change Work Item and Detach. The chooser and confirm action appear only after Change; Cancel/Escape collapse without writing, and successful association collapses and clears the choice. Moves still require confirmation with the current owner and `expectedWorkItemId`; a conflict keeps the chooser open for a fresh confirmation.
+
 - New-session draft intent is keyed to that draft, with separate parked keys for Work Items sharing a Project. Parking/rekeying carries text, attachments, and intent together. Opening another goal does not reuse a different goal's draft. Switching views keeps ChatWindow mounted but hidden, so native abandoned-draft cleanup cannot delete an unsent composer.
 - `/api/agent/new` validates the goal/Project before runtime creation, then settles Association before success or a first prompt. System/Tools `ensure_session` carries the same intent. Client promotion selects/refreshes; it is not the writer of authoritative Association.
 - `AgentSessionWrapper.send()` wraps native `fork`, `fork_branch`, and `clone` using `forkWithWorkItemAssociation`. Native fork isolation in `sessions.md` still applies. Capture the source owner before creating, retain the source, and revalidate that owner inside the locked inheritance write. In-session navigation retains the existing Association; subagents inherit none automatically.

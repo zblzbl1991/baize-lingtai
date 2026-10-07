@@ -1339,6 +1339,8 @@ export const enLocale: LocalePlugin = {
     "workbench.unassociated": "Unassociated session",
     "workbench.saveAs": "Save as new Work Item",
     "workbench.attach": "Attach",
+    "workbench.changeGoal": "Change Work Item",
+    "workbench.confirmChange": "Confirm change",
     "workbench.chooseGoal": "Choose a Work Item",
     "workbench.detach": "Detach",
     "workbench.moveConfirm": "Move this session from {name}?",

@@ -1339,6 +1339,8 @@ export const zhCNLocale: LocalePlugin = {
     "workbench.unassociated": "未关联会话",
     "workbench.saveAs": "保存为新工作目标",
     "workbench.attach": "关联",
+    "workbench.changeGoal": "更换目标",
+    "workbench.confirmChange": "确认更换",
     "workbench.chooseGoal": "选择工作目标",
     "workbench.detach": "取消关联",
     "workbench.moveConfirm": "将此会话从“{name}”移出并关联到所选目标？",
