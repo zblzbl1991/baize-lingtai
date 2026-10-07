@@ -45,3 +45,7 @@ _Avoid_: Artifacts, deliverables, git changes
 **Completed Work Item**:
 A Work Item the user has explicitly marked as done; it stays readable and reopenable. Its status organizes work without changing session permissions: continuing a session or changing Associations leaves it completed until the user explicitly reopens it.
 _Avoid_: Archived, closed, auto-completed
+
+**Work Item Activity（工作目标活动）**:
+Changes to a Work Item itself and activity in its currently associated sessions. Recent activity is the most recent of those changes or session updates; it helps users find recent work without asserting successful progress or completion.
+_Avoid_: Work progress, completed work, using the goal's metadata update alone to mean all activity
